@@ -98,6 +98,8 @@ Item {
         minimized: !!workspace && DockModel.isMinimizedWorkspace(workspace.name),
         minimizedFrom: DockModel.minimizedFromTags(toplevels[i].lastIpcObject ? toplevels[i].lastIpcObject.tags : []),
         address: toplevels[i].address,
+        title: String((toplevels[i].lastIpcObject && toplevels[i].lastIpcObject.title)
+          || toplevel.title || (entry && entry.name) || toplevel.appId),
         toplevel: toplevel
       })
     }
@@ -181,12 +183,19 @@ Item {
       return
     }
     var index = DockModel.pickWindow(item.windows.map(function(window) {
-      return { workspaceId: window.workspaceId, minimized: window.minimized, activated: window.toplevel.activated }
+      return { workspaceId: window.workspaceId, minimized: window.minimized,
+        minimizedFrom: window.minimizedFrom, activated: window.toplevel.activated }
     }), workspaceId)
     if (index < 0) return
-    var selected = item.windows[index]
-    if (selected.toplevel.activated && !selected.minimized) root.minimize(selected, workspaceId)
-    else root.bringForward(selected, workspaceId)
+    root.activateWindow(item.windows[index], workspaceId)
+  }
+
+  function activateWindow(selected, workspaceId) {
+    if (!selected) return
+    var targetWorkspaceId = DockModel.effectiveWorkspaceId(selected)
+    if (targetWorkspaceId === workspaceId && selected.toplevel.activated && !selected.minimized)
+      root.minimize(selected, workspaceId)
+    else root.bringForward(selected, targetWorkspaceId)
   }
 
   function minimize(appWindow, workspaceId) {

@@ -59,6 +59,28 @@ function minimizedFromTags(tags) {
   return -1
 }
 
+function effectiveWorkspaceId(window) {
+  if (!window) return -1
+  return window.minimized ? (window.minimizedFrom || -1) : window.workspaceId
+}
+
+function remoteWorkspaceIds(windows, currentWorkspaceId) {
+  var ids = []
+  for (var i = 0; i < (windows || []).length; i++) {
+    var id = effectiveWorkspaceId(windows[i])
+    if (id >= 1 && id !== currentWorkspaceId && ids.indexOf(id) < 0) ids.push(id)
+  }
+  return ids.sort(function(a, b) { return a - b })
+}
+
+// Omarchy gives each monitor a block of ten Hyprland workspace IDs, but its
+// bar shows slots 1–9 and 0. Keep the internal IDs for navigation only.
+function workspaceLabel(id) {
+  if (!(id >= 1)) return ""
+  var slot = (id - 1) % 10 + 1
+  return slot === 10 ? "0" : String(slot)
+}
+
 // A terminal app's window carries the app id its launcher gave the terminal,
 // which no desktop entry names as its class. The entry that passes that app id
 // claims it, and so does a terminal entry for the command Omarchy's TUI
@@ -158,24 +180,25 @@ function pinsInOrder(order, pinned, allPinned) {
   return result
 }
 
-// The window a click on an app acts on. A focused window is returned so that
-// the dock can minimize it; otherwise a visible local window is preferred,
-// followed by a minimized one. Windows are
-// { workspaceId, minimized, activated }.
+// The window a click acts on: first the focused local window (to minimize),
+// then other local windows, then remote ones. A minimized window belongs to
+// its tagged original workspace. Visible windows precede minimized ones within
+// each group. Windows are { workspaceId, minimized, minimizedFrom, activated }.
 function pickWindow(windows, workspaceId) {
   var list = windows || []
   if (list.length === 0) return -1
 
   function rank(window) {
-    if (window.minimized) return 1
-    return window.workspaceId === workspaceId ? 0 : 2
+    var local = effectiveWorkspaceId(window) === workspaceId
+    return (local ? 0 : 2) + (window.minimized ? 1 : 0)
   }
 
   var order = list.map(function(window, index) { return index })
   order.sort(function(a, b) { return rank(list[a]) - rank(list[b]) || a - b })
 
   for (var i = 0; i < order.length; i++)
-    if (list[order[i]].activated && !list[order[i]].minimized) return order[i]
+    if (list[order[i]].activated && !list[order[i]].minimized
+        && effectiveWorkspaceId(list[order[i]]) === workspaceId) return order[i]
   return order[0]
 }
 
@@ -189,6 +212,9 @@ if (typeof module !== "undefined") {
     isDockWindow: isDockWindow,
     isMinimizedWorkspace: isMinimizedWorkspace,
     minimizedFromTags: minimizedFromTags,
+    effectiveWorkspaceId: effectiveWorkspaceId,
+    remoteWorkspaceIds: remoteWorkspaceIds,
+    workspaceLabel: workspaceLabel,
     claimingEntryId: claimingEntryId,
     buildItems: buildItems,
     orderItems: orderItems,
