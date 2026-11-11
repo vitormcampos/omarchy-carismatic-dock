@@ -5,8 +5,7 @@ import Quickshell.Io
 import qs.Commons
 import "DockModel.js" as DockModel
 
-// An app dock for regular workspaces: pinned apps, running apps, and a grid
-// of every installed app.
+// An app and folder dock for regular workspaces.
 Item {
   id: root
 
@@ -45,15 +44,19 @@ Item {
 
   LocalAppLibrary { id: localAppLibrary }
 
-  // The dock's order for the session, as desktop ids, set when the user moves
-  // an app: a drag moves it, and keeping it in the dock puts it at the end. An
-  // app the order does not know yet goes at the end. Pins are saved in this
-  // order.
-  property var order: []
+  // Configured order contains desktop ids and folder:<absolute path> keys.
+  // Session changes show immediately while the config write catches up.
+  property var pendingOrder: null
+  readonly property var order: pendingOrder || DockModel.configuredOrder(dockConfig)
 
   // A reorder shows at once rather than when the saved config comes back.
   property var pendingPins: null
-  onDockConfigChanged: pendingPins = null
+  onDockConfigChanged: {
+    pendingPins = null
+    pendingOrder = null
+  }
+
+  readonly property var folders: DockModel.folderItems(dockConfig)
 
   // Entries that can claim a terminal app's window: those run in a terminal,
   // and those that hand the terminal an app id of their own.
@@ -103,7 +106,7 @@ Item {
       })
     }
 
-    return DockModel.orderItems(DockModel.buildItems(pinned, windows), root.order)
+    return DockModel.groupItems(DockModel.orderItems(DockModel.buildItems(pinned, windows).concat(root.folders), root.order))
   }
 
   readonly property var itemsByKey: {
@@ -153,16 +156,23 @@ Item {
   }
 
   function entryFor(item) {
-    return item ? DesktopEntries.byId(item.key) : null
+    return item && item.type !== "folder" ? DesktopEntries.byId(item.key) : null
   }
 
   function iconFor(item) {
+    if (item && item.type === "folder") return root.appLibrary.iconSource(item.icon)
     var entry = entryFor(item)
     var icon = entry && entry.icon ? entry.icon : (item ? item.key : "")
     return root.appLibrary ? root.appLibrary.iconSource(icon) : Quickshell.iconPath(icon, true)
   }
 
   function launch(item) {
+    if (item && item.type === "folder") {
+      var path = Util.shellQuote(item.path)
+      Util.execDetached("if [ -d " + path + " ]; then xdg-open " + path
+        + "; else notify-send 'Carismatic Dock' " + Util.shellQuote("Folder unavailable: " + item.path) + "; fi")
+      return
+    }
     var entry = entryFor(item)
     if (!entry) return
     var next = Object.assign({}, root.launches)
@@ -177,6 +187,7 @@ Item {
 
   function activate(item, workspaceId) {
     if (!item) return
+    if (item.type === "folder") { root.launch(item); return }
     if (item.windows.length === 0) {
       root.launch(item)
       return
@@ -247,26 +258,35 @@ Item {
     return root.pinnedKeys.indexOf(key) >= 0
   }
 
-  // Moves an app to a slot in the dock's order, pinning it there; the pins are
-  // saved in the new order. The index counts the slots once the app has left
-  // its own.
+  // Moves a shortcut or app to a slot, persisting the mixed order and the
+  // desktop-only pinned list in one atomic config update.
   function placeAt(key, index, visibleKeys) {
     if (!key) return
     var keys = visibleKeys || root.shownKeys()
     var visibleOrder = DockModel.orderWithKeyAt(keys, key, index)
-    root.order = visibleOrder.concat(root.order.filter(function(other) {
+    root.pendingOrder = visibleOrder.concat(root.order.filter(function(other) {
       return visibleOrder.indexOf(other) < 0
     }))
     var pinned = {}
     root.pinnedKeys.forEach(function(other) { pinned[other] = true })
-    pinned[key] = true
-    root.savePins(DockModel.pinsInOrder(root.order, pinned, root.pinnedKeys))
+    if (key.indexOf("folder:") !== 0) pinned[key] = true
+    root.saveOrder(DockModel.pinsInOrder(root.order, pinned, root.pinnedKeys))
   }
 
-  // A reorder shows at once; the saved config catches up after.
-  function savePins(pins) {
+  function folderCommand() {
+    return Util.shellQuote(Quickshell.env("HOME") + "/.config/omarchy/plugins/carismatic-dock/folders.sh")
+  }
+
+  function saveOrder(pins) {
     root.pendingPins = pins
-    Util.execDetached("omarchy-dock pinned " + pins.map(function(id) { return Util.shellQuote(id) }).join(" "))
+    Util.execDetached(root.folderCommand() + " order " + Util.shellQuote(JSON.stringify(root.order))
+      + " " + Util.shellQuote(JSON.stringify(pins)))
+  }
+
+  function removeFolder(item) {
+    if (!item || item.type !== "folder") return
+    root.pendingOrder = root.order.filter(function(key) { return key !== item.key })
+    Util.execDetached(root.folderCommand() + " remove " + Util.shellQuote(item.path))
   }
 
   function moveItem(fromIndex, toIndex, visibleKeys) {

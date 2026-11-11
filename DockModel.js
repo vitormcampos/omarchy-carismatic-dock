@@ -30,6 +30,32 @@ function pinnedIds(dockConfig, defaultsConfig) {
   return ids
 }
 
+// Folder shortcuts are separate from desktop entries. Only absolute paths are
+// accepted; a missing directory is kept so the user can repair its path later.
+function folderItems(dockConfig) {
+  var source = dockConfig && Array.isArray(dockConfig.folders) ? dockConfig.folders : []
+  var items = []
+  var seen = {}
+  for (var i = 0; i < source.length; i++) {
+    var folder = source[i]
+    if (!folder || typeof folder !== "object" || Array.isArray(folder) || typeof folder.path !== "string") continue
+    var path = folder.path.replace(/\/+$/, "") || "/"
+    if (path.charAt(0) !== "/" || seen[path]) continue
+    seen[path] = true
+    var name = typeof folder.name === "string" ? folder.name.trim() : ""
+    var icon = typeof folder.icon === "string" ? folder.icon.trim() : ""
+    items.push({ type: "folder", key: "folder:" + path, path: path,
+      name: name || (path === "/" ? "/" : path.slice(path.lastIndexOf("/") + 1)),
+      icon: icon || "folder", pinned: true, windows: [] })
+  }
+  return items
+}
+
+function configuredOrder(dockConfig) {
+  return dockConfig && Array.isArray(dockConfig.order)
+    ? dockConfig.order.filter(function(key) { return typeof key === "string" }) : []
+}
+
 // Only app windows on regular workspaces belong in the dock. Helpers without a
 // visible desktop entry, such as the agent window, and anything parked on a
 // special workspace, such as the scratchpad, stay out of it. A minimized window
@@ -126,7 +152,7 @@ function buildItems(pinned, windows) {
 
   function itemFor(key, isPinned) {
     if (!byKey[key]) {
-      byKey[key] = { key: key, pinned: isPinned, windows: [] }
+      byKey[key] = { type: "app", key: key, pinned: isPinned, windows: [] }
       items.push(byKey[key])
     }
     return byKey[key]
@@ -163,6 +189,26 @@ function orderItems(items, order) {
   for (var k = 0; k < (items || []).length; k++) {
     if (!placed[items[k].key]) result.push(items[k])
   }
+  return result
+}
+
+// Keep the three kinds of dock entry together. OrderItems still determines
+// the order within each group, including drag reordering of pinned entries.
+function itemGroup(item) {
+  return item.type === "folder" ? 2 : item.pinned ? 0 : 1
+}
+
+function groupItems(items) {
+  var groups = [[], [], []]
+  for (var i = 0; i < (items || []).length; i++) groups[itemGroup(items[i])].push(items[i])
+  return groups[0].concat(groups[1], groups[2])
+}
+
+// Zero-based indexes of items preceded by a different, non-empty group.
+function dividersBefore(items) {
+  var result = []
+  for (var i = 1; i < (items || []).length; i++)
+    if (itemGroup(items[i]) !== itemGroup(items[i - 1])) result.push(i)
   return result
 }
 
@@ -221,6 +267,8 @@ if (typeof module !== "undefined") {
     isVertical: isVertical,
     normalizeId: normalizeId,
     pinnedIds: pinnedIds,
+    folderItems: folderItems,
+    configuredOrder: configuredOrder,
     isDockWindow: isDockWindow,
     isMinimizedWorkspace: isMinimizedWorkspace,
     minimizedFromTags: minimizedFromTags,
@@ -231,6 +279,8 @@ if (typeof module !== "undefined") {
     claimingEntryId: claimingEntryId,
     buildItems: buildItems,
     orderItems: orderItems,
+    groupItems: groupItems,
+    dividersBefore: dividersBefore,
     orderWithKeyAt: orderWithKeyAt,
     dropIndex: dropIndex,
     pinsInOrder: pinsInOrder,

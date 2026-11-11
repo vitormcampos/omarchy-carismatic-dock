@@ -36,7 +36,29 @@ PanelWindow {
           windows.push(appWindow)
       })
     })
-    return DockModel.orderItems(DockModel.buildItems(pinned, windows), dock.order)
+    return DockModel.groupItems(DockModel.orderItems(DockModel.buildItems(pinned, windows).concat(dock.folders), dock.order))
+  }
+  readonly property var dividerIndexes: DockModel.dividersBefore(workspaceItems)
+  readonly property int dividerMargin: 5
+  readonly property int dividerThickness: Math.max(1, Style.normalBorderWidth)
+  readonly property int dividerSpace: dividerMargin * 2 + dividerThickness
+
+  function slotStart(index) {
+    var gaps = 0
+    for (var i = 0; i < dividerIndexes.length; i++)
+      if (dividerIndexes[i] <= index) gaps++
+    return dockPadding + (index + 1) * slotSize + gaps * dividerSpace
+  }
+
+  function draggedIndex(index, offset) {
+    var at = slotStart(index) + offset
+    var target = index
+    var distance = Infinity
+    for (var i = 0; i < workspaceItems.length; i++) {
+      var delta = Math.abs(at - slotStart(i))
+      if (delta < distance) { distance = delta; target = i }
+    }
+    return target
   }
   readonly property var workspaceItemsByKey: {
     var result = {}
@@ -207,9 +229,10 @@ PanelWindow {
   // The slot a point along the dock falls before, counting from the first app.
   function slotIndexAt(point) {
     var along = window.vertical ? point.y : point.x
-    var first = window.dockPadding + window.slotSize
     var count = workspaceItemModel.count
-    return Math.max(0, Math.min(count, Math.round((along - first) / window.slotSize)))
+    for (var i = 0; i < count; i++)
+      if (along < window.slotStart(i) + window.slotSize / 2) return i
+    return count
   }
   property var menuItem: null
   property string pickerKey: ""
@@ -455,7 +478,33 @@ PanelWindow {
         id: appRepeater
         model: workspaceItemModel
 
-        delegate: AppSlot {}
+        delegate: Item {
+          id: entry
+          required property int index
+          required property string key
+          readonly property bool divided: window.dividerIndexes.indexOf(index) >= 0
+
+          width: window.slotSize + (divided && !window.vertical ? window.dividerSpace : 0)
+          height: window.slotSize + (divided && window.vertical ? window.dividerSpace : 0)
+
+          Rectangle {
+            visible: entry.divided
+            x: window.dividerMargin
+            y: window.vertical ? window.dividerMargin
+              : Math.round((window.slotSize - height) / 2)
+            width: window.vertical ? window.slotSize - window.dividerMargin * 2 : window.dividerThickness
+            height: window.vertical ? window.dividerThickness : window.slotSize - window.dividerMargin * 2
+            color: Commons.Color.bar.text
+            opacity: 0.45
+          }
+
+          AppSlot {
+            index: entry.index
+            key: entry.key
+            x: entry.divided && !window.vertical ? window.dividerSpace : 0
+            y: entry.divided && window.vertical ? window.dividerSpace : 0
+          }
+        }
       }
     }
   }
@@ -545,8 +594,16 @@ PanelWindow {
     required property int index
     required property string key
     readonly property var modelData: window.workspaceItemsByKey[key] || null
+    readonly property string label: {
+      if (!modelData) return ""
+      if (modelData.type === "folder") return modelData.name
+      var entry = window.dock ? window.dock.entryFor(modelData) : null
+      return String((entry && entry.name) || modelData.key)
+    }
     readonly property bool launching: !!window.dock && window.dock.isLaunching(key)
     readonly property bool lifted: window.dragIndex === index
+    readonly property bool clickPressed: mouse.pressed && !dragged && !window.dragging
+      && !!(mouse.pressedButtons & (Qt.LeftButton | Qt.MiddleButton))
     property point pressPoint
     property bool dragged: false
     readonly property int windowCount: modelData ? modelData.windows.length : 0
@@ -554,15 +611,15 @@ PanelWindow {
     readonly property string remoteLabel: remoteWorkspaces.length > 1
       ? DockModel.workspaceLabel(remoteWorkspaces[0]) + "+"
       : DockModel.workspaceLabel(remoteWorkspaces[0])
-    property real pulse: 1
+    property real launchPulse: 1
 
     // Slots between where the dragged app was and where it would land step
     // aside to make room; the dragged one follows the pointer.
     readonly property real shift: window.insertIndex >= 0 ? (index >= window.insertIndex ? 1 : -1) * window.slotSize / 2
       : !window.dragging ? 0
       : lifted ? window.dragOffset
-      : (window.dragIndex < index && index <= window.dropIndex) ? -window.slotSize
-      : (window.dropIndex <= index && index < window.dragIndex) ? window.slotSize
+      : (window.dragIndex < index && index <= window.dropIndex) ? window.slotStart(index - 1) - window.slotStart(index)
+      : (window.dropIndex <= index && index < window.dragIndex) ? window.slotStart(index + 1) - window.slotStart(index)
       : 0
     property real displayedShift: shift
 
@@ -604,7 +661,7 @@ PanelWindow {
       }
       if (!appSlot.lifted) return
       window.dragOffset = delta
-      window.dropIndex = DockModel.dropIndex(appSlot.index, delta, window.slotSize, appRepeater.count)
+      window.dropIndex = window.draggedIndex(appSlot.index, delta)
     }
 
     mouse.onReleased: function(event) {
@@ -635,8 +692,26 @@ PanelWindow {
       else window.dock.activate(appSlot.modelData, window.workspaceId)
     }
 
-    // Running apps are drawn in full, pinned ones that are not running faded,
-    // and one that is starting pulses between the two.
+    PanelToolTip {
+      visible: appSlot.hovered && window.contentShown && !window.menuOpen
+        && window.insertIndex < 0 && appSlot.label !== ""
+      text: appSlot.label
+      width: Math.min(implicitWidth, window.vertical
+        ? window.popupRoom - window.gap * 2 : window.width - window.gap * 2)
+      x: window.position === "left" ? appSlot.width + window.gap
+        : window.position === "right" ? -width - window.gap
+        : Math.max(window.gap - body.x - appSlot.parent.x - appSlot.x,
+            Math.min(window.width - window.gap - body.x - appSlot.parent.x - appSlot.x - width,
+              (appSlot.width - width) / 2))
+      y: window.position === "top" ? appSlot.height + window.gap
+        : window.position === "bottom" ? -height - window.gap
+        : Math.max(window.gap - body.y - appSlot.parent.y - appSlot.y,
+            Math.min(window.height - window.gap - body.y - appSlot.parent.y - appSlot.y - height,
+              (appSlot.height - height) / 2))
+    }
+
+    // Pressing confirms the click. While a new window opens, the icon itself
+    // breathes subtly instead of showing a separate loading marker.
     Image {
       x: window.iconInset
       y: window.iconInset
@@ -648,15 +723,23 @@ PanelWindow {
       asynchronous: true
       smooth: true
       mipmap: true
-      opacity: appSlot.launching ? appSlot.pulse : (appSlot.windowCount > 0 ? 1 : window.idleOpacity)
+      opacity: (appSlot.modelData && appSlot.modelData.type === "folder" || appSlot.windowCount > 0 ? 1 : window.idleOpacity)
+        * (appSlot.launching ? 0.75 + 0.25 * appSlot.launchPulse : 1)
       transform: Translate {
         x: window.vertical ? 0 : appSlot.displayedShift
         y: window.vertical ? appSlot.displayedShift : 0
       }
-      scale: appSlot.lifted || appSlot.hovered ? 1.15 : 1
+      scale: appSlot.launching ? 1 + 0.5 * (1 - appSlot.launchPulse)
+        : (appSlot.lifted || appSlot.hovered ? 1.15 : 1) * (appSlot.clickPressed ? 0.93 : 1)
       transformOrigin: window.popOrigin
 
-      Behavior on scale { NumberAnimation { duration: Style.duration(120); easing.type: Easing.OutCubic } }
+      Behavior on scale {
+        enabled: !appSlot.launching
+        NumberAnimation {
+          duration: Style.duration(appSlot.clickPressed ? 90 : 180)
+          easing.type: Easing.OutCubic
+        }
+      }
     }
 
     // A workspace number identifies running windows outside this screen's
@@ -687,15 +770,14 @@ PanelWindow {
       }
     }
 
-    // With animations off it holds still rather than spinning through
-    // zero-length steps.
+    // With animations off the icon stays still and fully visible.
     SequentialAnimation {
       running: appSlot.launching && !Style.reduceMotion
       loops: Animation.Infinite
-      onRunningChanged: if (!running) appSlot.pulse = 1
+      onRunningChanged: if (!running) appSlot.launchPulse = 1
 
-      NumberAnimation { target: appSlot; property: "pulse"; from: 1; to: window.idleOpacity; duration: Style.duration(500); easing.type: Easing.InOutSine }
-      NumberAnimation { target: appSlot; property: "pulse"; to: 1; duration: Style.duration(500); easing.type: Easing.InOutSine }
+      NumberAnimation { target: appSlot; property: "launchPulse"; from: 1; to: 0; duration: Style.duration(420); easing.type: Easing.InOutSine }
+      NumberAnimation { target: appSlot; property: "launchPulse"; to: 1; duration: Style.duration(420); easing.type: Easing.InOutSine }
     }
   }
 
@@ -705,6 +787,7 @@ PanelWindow {
     readonly property var item: window.menuItem
     readonly property var pickerItem: window.pickerKey ? window.workspaceItemsByKey[window.pickerKey] || null : null
     readonly property bool hasEntry: !!item && !!window.dock && !!window.dock.entryFor(item)
+    readonly property bool folder: !!item && item.type === "folder"
     readonly property bool running: !!item && item.windows.length > 0
 
     visible: window.contentShown && (!!item || window.settingsMenu || !!pickerItem)
@@ -749,6 +832,18 @@ PanelWindow {
         visible: menu.hasEntry && menu.running
         text: Commons.I18n.t("dock.newWindow")
         onTriggered: window.dock.launch(menu.item)
+      }
+
+      MenuRow {
+        visible: menu.folder
+        text: menu.item ? menu.item.name + " · " + menu.item.path : ""
+        onTriggered: window.dock.launch(menu.item)
+      }
+
+      MenuRow {
+        visible: menu.folder
+        text: "Remove folder from dock"
+        onTriggered: window.dock.removeFolder(menu.item)
       }
 
       MenuRow {
