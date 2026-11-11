@@ -7,9 +7,8 @@ import qs.Commons as Commons
 import qs.Ui
 import "DockModel.js" as DockModel
 
-// One screen's dock. It stays mapped and only hides its contents, so switching
-// to a floating workspace does not wait on a fresh layer surface. While hidden the
-// mask is empty and clicks fall through to the windows below.
+// One screen's dock. It stays mapped on regular workspaces and hides behind
+// fullscreen windows. While hidden the mask is empty and clicks fall through.
 PanelWindow {
   id: window
   // Right-to-left languages read this window mirrored.
@@ -77,17 +76,62 @@ PanelWindow {
     }
     return mode
   }
-  readonly property bool shown: !!dock && dock.isFloating(workspaceId) && fullscreenMode < 2
-  // With auto-hide on, the dock waits off screen until the pointer reaches its
-  // edge, and stays while the pointer, a menu, or a drag still needs it. A
-  // maximized window hides the dock the same way, so it can still be called up.
-  readonly property bool autohide: !!dock && (dock.autohide || fullscreenMode === 1)
+  readonly property bool shown: !!dock && workspaceId >= 1 && fullscreenMode < 2
+  // Evaluate the dock's resting position, not its tucked position: otherwise
+  // hiding it would remove the overlap and immediately show it again.
+  function restingBounds() {
+    var origin = window.origin()
+    var monitorIpc = monitor && monitor.lastIpcObject ? monitor.lastIpcObject : ({})
+    var x = position === "left" ? gap : position === "right" ? width - body.width - gap
+      : Math.round((width - body.width) / 2)
+    var y = position === "top" ? gap : position === "bottom" ? height - body.height - gap
+      : Math.round((height - body.height) / 2)
+    return { x: (monitorIpc.x || 0) + origin.x + x,
+      y: (monitorIpc.y || 0) + origin.y + y, width: body.width, height: body.height }
+  }
+
+  readonly property bool hasFloatingWindows: {
+    var toplevels = Hyprland.toplevels.values
+    for (var i = 0; i < toplevels.length; i++) {
+      var top = toplevels[i]
+      var ipc = top.lastIpcObject
+      if (top.workspace && top.workspace.id === workspaceId && ipc && ipc.floating
+          && !ipc.hidden && ipc.mapped !== false) return true
+    }
+    return false
+  }
+  readonly property bool smartObstructed: {
+    if (!dock || workspaceId < 1) return false
+    var bounds = window.restingBounds()
+    var tiledMode = dock.modes[workspaceId] !== "floating"
+    var toplevels = Hyprland.toplevels.values
+    for (var i = 0; i < toplevels.length; i++) {
+      var top = toplevels[i]
+      var ipc = top.lastIpcObject
+      if (!top.workspace || top.workspace.id !== workspaceId || !ipc
+          || ipc.hidden || ipc.mapped === false) continue
+      if (tiledMode && ipc.floating === false) return true
+      if (DockModel.overlapsDock(ipc, bounds)) return true
+    }
+    return false
+  }
+
+  // An overlapping window (or a tiled/scrolling workspace with tiles) tucks
+  // the dock until the pointer reaches its edge. Manual auto-hide still wins.
+  readonly property bool autohide: !!dock && (dock.autohide || fullscreenMode === 1 || smartObstructed)
   property bool revealed: false
   readonly property bool menuOpen: menuItem !== null || settingsMenu || pickerKey !== ""
   readonly property bool tucked: autohide && !(revealed || menuOpen || dragging || insertIndex >= 0)
   readonly property bool contentShown: shown && !tucked
 
   readonly property int gap: Style.spacing.xs
+  readonly property int dockPadding: Style.spacing.xs
+  readonly property string backgroundMode: dock && dock.shell && dock.shell.barConfig
+    ? (dock.shell.barConfig.background || (dock.shell.barConfig.transparent === true ? "none" : "opaque"))
+    : "opaque"
+  readonly property color themeBackground: Commons.Color.bar.background
+  readonly property color glassBackground: Qt.rgba(themeBackground.r, themeBackground.g,
+    themeBackground.b, Math.min(themeBackground.a, 0.35))
   readonly property int iconSize: Math.round(36 * Style.fontScale)
   // Each app has a square slot with its icon in the middle, and the slots run
   // straight to the edge of the dock.
@@ -163,7 +207,7 @@ PanelWindow {
   // The slot a point along the dock falls before, counting from the first app.
   function slotIndexAt(point) {
     var along = window.vertical ? point.y : point.x
-    var first = window.slotSize
+    var first = window.dockPadding + window.slotSize
     var count = workspaceItemModel.count
     return Math.max(0, Math.min(count, Math.round((along - first) / window.slotSize)))
   }
@@ -260,11 +304,12 @@ PanelWindow {
 
   visible: !remapGuard.remapping
   color: "transparent"
+  surfaceFormat.opaque: false
   WlrLayershell.namespace: "omarchy-dock"
   WlrLayershell.layer: WlrLayer.Top
   WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
   // Kept clear of the bar's reserved edge, without reserving one of its own:
-  // floating windows go where they are put.
+  // the dock overlays tiled windows instead of resizing their work area.
   exclusionMode: ExclusionMode.Normal
   exclusiveZone: 0
 
@@ -275,8 +320,8 @@ PanelWindow {
     right: window.position !== "left"
   }
 
-  implicitWidth: window.vertical ? window.gap + window.slotSize + window.popupRoom : 0
-  implicitHeight: window.vertical ? 0 : window.gap + window.slotSize + window.popupRoom
+  implicitWidth: window.vertical ? window.gap + window.slotSize + window.dockPadding * 2 + window.popupRoom : 0
+  implicitHeight: window.vertical ? 0 : window.gap + window.slotSize + window.dockPadding * 2 + window.popupRoom
 
   mask: Region {
     item: window.contentShown ? body : null
@@ -285,7 +330,17 @@ PanelWindow {
     Region { item: menu.visible ? menu : null }
   }
 
-  onAutohideChanged: window.revealed = false
+  onAutohideChanged: window.revealed = window.autohide && (bodyHover.hovered || window.menuOpen || window.dragging)
+
+  // Hyprland's toplevel list updates on open/close/workspace changes, not on
+  // every frame of a floating drag or resize. Poll only while such windows
+  // exist on this screen so overlap follows their final geometry.
+  Timer {
+    interval: 500
+    repeat: true
+    running: window.shown && window.hasFloatingWindows
+    onTriggered: Hyprland.refreshToplevels()
+  }
 
   Timer {
     id: hideTimer
@@ -335,12 +390,12 @@ PanelWindow {
     LayoutMirroring.enabled: false
     LayoutMirroring.childrenInherit: true
 
-    width: slots.implicitWidth
-    height: slots.implicitHeight
+    width: slots.implicitWidth + window.dockPadding * 2
+    height: slots.implicitHeight + window.dockPadding * 2
     // How far the dock is tucked past its edge. Auto-hide slides it, but only
-    // while the dock is on screen: arriving on a floating workspace shows it
+    // while the dock is on screen: arriving on a regular workspace shows it
     // where it belongs at once.
-    property real tuck: window.tucked ? window.slotSize + window.gap : 0
+    property real tuck: window.tucked ? window.slotSize + window.dockPadding * 2 + window.gap : 0
 
     // Tucking away is quicker than coming back. A gentler curve than
     // Style.easeOut, which crosses the short slide in a frame or two.
@@ -359,11 +414,24 @@ PanelWindow {
     y: window.position === "top" ? window.gap - tuck
       : window.position === "bottom" ? window.height - height - window.gap + tuck
       : Math.round((window.height - height) / 2)
-    // Switching between tiled and floating workspaces shows and hides the dock
-    // at once, with nothing to watch in between. Hidden by opacity rather than
+    // Fullscreen or special workspaces hide the dock at once. Hidden by opacity rather than
     // visibility, so the icons keep their textures and are drawn on the first
     // frame back instead of being uploaded again.
     opacity: window.shown ? 1 : 0
+
+    // One theme-matched surface for the whole dock, growing with its icons.
+    // The bar's glass mode uses the same color with alpha capped at 0.35;
+    // Hyprland provides blur only behind the painted part of this layer.
+    Rectangle {
+      anchors.fill: parent
+      radius: Style.cornerRadius
+      color: window.backgroundMode === "none" ? "transparent"
+        : window.backgroundMode === "glassy" ? window.glassBackground : window.themeBackground
+
+      Behavior on color {
+        ColorAnimation { duration: Style.duration(250); easing.type: Easing.OutCubic }
+      }
+    }
 
     HoverHandler {
       id: bodyHover
@@ -673,8 +741,8 @@ PanelWindow {
       MenuRow {
         visible: window.settingsMenu
         text: Commons.I18n.t("dock.autoHide")
-        checked: window.autohide
-        onTriggered: Util.execDetached("omarchy-dock autohide " + (window.autohide ? "off" : "on"))
+        checked: !!window.dock && window.dock.autohide
+        onTriggered: Util.execDetached("omarchy-dock autohide " + (window.dock && window.dock.autohide ? "off" : "on"))
       }
 
       MenuRow {

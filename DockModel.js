@@ -81,6 +81,18 @@ function workspaceLabel(id) {
   return slot === 10 ? "0" : String(slot)
 }
 
+// Does a Hyprland client occupy the dock's visible rectangle? Ignore a tiny
+// edge-only contact so window borders do not make the dock flicker.
+function overlapsDock(client, dock) {
+  if (!client || client.hidden || client.mapped === false || !client.at || !client.size || !dock) return false
+  var x = Number(client.at[0]), y = Number(client.at[1])
+  var width = Number(client.size[0]), height = Number(client.size[1])
+  if (!isFinite(x) || !isFinite(y) || !(width > 0) || !(height > 0)) return false
+  var inset = 2
+  return x < dock.x + dock.width - inset && x + width > dock.x + inset
+    && y < dock.y + dock.height - inset && y + height > dock.y + inset
+}
+
 // A terminal app's window carries the app id its launcher gave the terminal,
 // which no desktop entry names as its class. The entry that passes that app id
 // claims it, and so does a terminal entry for the command Omarchy's TUI
@@ -215,6 +227,7 @@ if (typeof module !== "undefined") {
     effectiveWorkspaceId: effectiveWorkspaceId,
     remoteWorkspaceIds: remoteWorkspaceIds,
     workspaceLabel: workspaceLabel,
+    overlapsDock: overlapsDock,
     claimingEntryId: claimingEntryId,
     buildItems: buildItems,
     orderItems: orderItems,
