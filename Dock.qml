@@ -171,14 +171,11 @@ Item {
 
   onItemsChanged: settleLaunches()
 
-  // An app launched from the dock pulses its dot until a new window of it
-  // shows up, or for ten seconds if none does.
+  // Each launch gets a fresh serial so the icon can replay its one-shot hop,
+  // even when a second new-window request arrives before the first completes.
   property var launches: ({})
+  property int launchSerial: 0
   readonly property int launchTimeout: 10000
-
-  function isLaunching(key) {
-    return root.launches[key] !== undefined
-  }
 
   function settleLaunches() {
     var next = {}
@@ -227,7 +224,7 @@ Item {
     var entry = entryFor(item)
     if (!entry) return
     var next = Object.assign({}, root.launches)
-    next[item.key] = { at: Date.now(), windows: item.windows.length }
+    next[item.key] = { at: Date.now(), windows: item.windows.length, serial: ++root.launchSerial }
     root.launches = next
     root.launchEntry(entry)
   }
@@ -324,8 +321,12 @@ Item {
     root.saveOrder(DockModel.pinsInOrder(root.order, pinned, root.pinnedKeys))
   }
 
+  function folderScriptPath() {
+    return Quickshell.env("HOME") + "/.config/omarchy/plugins/carismatic-dock/folders.sh"
+  }
+
   function folderCommand() {
-    return Util.shellQuote(Quickshell.env("HOME") + "/.config/omarchy/plugins/carismatic-dock/folders.sh")
+    return Util.shellQuote(root.folderScriptPath())
   }
 
   function saveOrder(pins) {

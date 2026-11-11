@@ -633,8 +633,18 @@ PanelWindow {
       var entry = window.dock ? window.dock.entryFor(modelData) : null
       return String((entry && entry.name) || modelData.key)
     }
-    readonly property bool launching: !!window.dock && window.dock.isLaunching(key)
+    readonly property int launchSerial: {
+      var launch = window.dock ? window.dock.launches[key] : null
+      return launch ? launch.serial : 0
+    }
+    property bool launchReady: false
+    property real hopOffset: 0
+    Component.onCompleted: launchReady = true
+    onLaunchSerialChanged: {
+      if (launchReady && launchSerial > 0 && !Style.reduceMotion && !window.dragging) launchHop.restart()
+    }
     readonly property bool lifted: window.dragIndex === index
+    onLiftedChanged: if (lifted) launchHop.stop()
     readonly property bool clickPressed: mouse.pressed && !dragged && !window.dragging
       && !!(mouse.pressedButtons & (Qt.LeftButton | Qt.MiddleButton))
     property point pressPoint
@@ -644,7 +654,6 @@ PanelWindow {
     readonly property string remoteLabel: remoteWorkspaces.length > 1
       ? DockModel.workspaceLabel(remoteWorkspaces[0]) + "+"
       : DockModel.workspaceLabel(remoteWorkspaces[0])
-    property real launchPulse: 1
 
     // Slots between where the dragged app was and where it would land step
     // aside to make room; the dragged one follows the pointer.
@@ -743,8 +752,8 @@ PanelWindow {
               (appSlot.height - height) / 2))
     }
 
-    // Pressing confirms the click. While a new window opens, the icon itself
-    // breathes subtly instead of showing a separate loading marker.
+    // Pressing confirms the click; a launch moves only the artwork, not the
+    // slot or its hit target, away from the screen edge and back once.
     Image {
       x: window.iconInset
       y: window.iconInset
@@ -756,18 +765,16 @@ PanelWindow {
       asynchronous: true
       smooth: true
       mipmap: true
-      opacity: (appSlot.modelData && appSlot.modelData.type === "folder" || appSlot.windowCount > 0 ? 1 : window.idleOpacity)
-        * (appSlot.launching ? 0.75 + 0.25 * appSlot.launchPulse : 1)
+      opacity: appSlot.modelData && appSlot.modelData.type === "folder" || appSlot.windowCount > 0 ? 1 : window.idleOpacity
       transform: Translate {
-        x: window.vertical ? 0 : appSlot.displayedShift
-        y: window.vertical ? appSlot.displayedShift : 0
+        x: window.vertical ? (window.position === "left" ? appSlot.hopOffset : -appSlot.hopOffset) : appSlot.displayedShift
+        y: window.vertical ? appSlot.displayedShift
+          : (window.position === "top" ? appSlot.hopOffset : -appSlot.hopOffset)
       }
-      scale: appSlot.launching ? 1 + 0.5 * (1 - appSlot.launchPulse)
-        : (appSlot.lifted || appSlot.hovered ? 1.15 : 1) * (appSlot.clickPressed ? 0.93 : 1)
+      scale: (appSlot.lifted || appSlot.hovered ? 1.15 : 1) * (appSlot.clickPressed ? 0.93 : 1)
       transformOrigin: window.popOrigin
 
       Behavior on scale {
-        enabled: !appSlot.launching
         NumberAnimation {
           duration: Style.duration(appSlot.clickPressed ? 90 : 180)
           easing.type: Easing.OutCubic
@@ -803,14 +810,13 @@ PanelWindow {
       }
     }
 
-    // With animations off the icon stays still and fully visible.
+    // A single short hop per launch; motion-reduction skips it entirely.
     SequentialAnimation {
-      running: appSlot.launching && !Style.reduceMotion
-      loops: Animation.Infinite
-      onRunningChanged: if (!running) appSlot.launchPulse = 1
+      id: launchHop
+      onRunningChanged: if (!running) appSlot.hopOffset = 0
 
-      NumberAnimation { target: appSlot; property: "launchPulse"; from: 1; to: 0; duration: Style.duration(420); easing.type: Easing.InOutSine }
-      NumberAnimation { target: appSlot; property: "launchPulse"; to: 1; duration: Style.duration(420); easing.type: Easing.InOutSine }
+      NumberAnimation { target: appSlot; property: "hopOffset"; from: 0; to: Style.space(14); duration: Style.duration(400); easing.type: Easing.InOutSine }
+      NumberAnimation { target: appSlot; property: "hopOffset"; to: 0; duration: Style.duration(600); easing.type: Easing.OutCubic }
     }
   }
 
