@@ -57,6 +57,52 @@ Item {
   }
 
   readonly property var folders: DockModel.folderItems(dockConfig)
+  property var folderIcons: ({})
+  property var pendingFolderIcons: []
+  property string folderIconPath: ""
+
+  function refreshFolderIcons() {
+    var next = {}
+    var paths = []
+    for (var i = 0; i < root.folders.length; i++) {
+      var path = root.folders[i].path
+      if (root.folderIcons[path] !== undefined) next[path] = root.folderIcons[path]
+      if (!root.folders[i].icon) paths.push(path)
+    }
+    root.folderIcons = next
+    root.pendingFolderIcons = paths
+    root.readNextFolderIcon()
+  }
+
+  function readNextFolderIcon() {
+    if (folderIconProc.running || root.pendingFolderIcons.length === 0) return
+    root.folderIconPath = root.pendingFolderIcons.shift()
+    folderIconProc.command = [root.folderScriptPath(), "icon", root.folderIconPath]
+    folderIconProc.running = true
+  }
+
+  onFoldersChanged: refreshFolderIcons()
+
+  Timer {
+    interval: 60000
+    repeat: true
+    running: root.folders.length > 0
+    onTriggered: root.refreshFolderIcons()
+  }
+
+  Process {
+    id: folderIconProc
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var path = root.folderIconPath
+        if (!root.folders.some(function(folder) { return folder.path === path && !folder.icon })) return
+        var next = Object.assign({}, root.folderIcons)
+        next[path] = text.trim()
+        root.folderIcons = next
+      }
+    }
+    onExited: Qt.callLater(root.readNextFolderIcon)
+  }
 
   // Entries that can claim a terminal app's window: those run in a terminal,
   // and those that hand the terminal an app id of their own.
@@ -160,7 +206,12 @@ Item {
   }
 
   function iconFor(item) {
-    if (item && item.type === "folder") return root.appLibrary.iconSource(item.icon)
+    if (item && item.type === "folder") {
+      var icon = item.icon || root.folderIcons[item.path] || ""
+      if (icon && (icon.indexOf("file://") === 0 || icon.charAt(0) === "/" || Quickshell.hasThemeIcon(icon)))
+        return root.appLibrary.iconSource(icon)
+      return root.appLibrary.iconSource("folder")
+    }
     var entry = entryFor(item)
     var icon = entry && entry.icon ? entry.icon : (item ? item.key : "")
     return root.appLibrary ? root.appLibrary.iconSource(icon) : Quickshell.iconPath(icon, true)

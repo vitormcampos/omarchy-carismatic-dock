@@ -507,6 +507,39 @@ PanelWindow {
         }
       }
     }
+
+    // Nautilus supplies file:// URLs through Wayland drag-and-drop. The app
+    // grid uses its own pointer drag, so this target only handles OS drops.
+    DropArea {
+      id: folderDrop
+      anchors.fill: parent
+
+      function localFolderUrl(event) {
+        if (!event.hasUrls || event.urls.length !== 1) return ""
+        var url = String(event.urls[0])
+        return url.indexOf("file://") === 0 ? url : ""
+      }
+
+      onEntered: function(drag) {
+        if (localFolderUrl(drag)) drag.accept(Qt.CopyAction)
+        else drag.accepted = false
+      }
+      onDropped: function(drop) {
+        var url = localFolderUrl(drop)
+        if (!url || !window.dock) { drop.accepted = false; return }
+        drop.accept(Qt.CopyAction)
+        Util.execDetached(window.dock.folderCommand() + " add-url " + Util.shellQuote(url))
+      }
+
+      Rectangle {
+        anchors.fill: parent
+        visible: folderDrop.containsDrag
+        radius: Style.cornerRadius
+        color: "transparent"
+        border.width: Math.max(1, Style.normalBorderWidth)
+        border.color: Commons.Color.accent
+      }
+    }
   }
 
   component Slot: Item {

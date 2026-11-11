@@ -46,7 +46,7 @@ function folderItems(dockConfig) {
     var icon = typeof folder.icon === "string" ? folder.icon.trim() : ""
     items.push({ type: "folder", key: "folder:" + path, path: path,
       name: name || (path === "/" ? "/" : path.slice(path.lastIndexOf("/") + 1)),
-      icon: icon || "folder", pinned: true, windows: [] })
+      icon: icon, pinned: true, windows: [] })
   }
   return items
 }
