@@ -24,7 +24,11 @@ remain in `dock.pinned`; folder paths never become app IDs.
 The dock groups pinned apps, running unpinned apps, and folders in that order,
 with a divider only between groups that are present. Dragging a running app
 into the pinned section pins it; folders can be reordered within their group.
+Dragging an app out of the app grid pins it at the marked slot, which stays
+inside the dock instead of pushing its ends past the background.
 
 With the dock visible, drag one local folder from Nautilus onto it to add a
-shortcut automatically using the folder's name. Files, remote locations, and
-multiple selections are not registered.
+shortcut automatically using the folder's name. While a valid folder hovers,
+the dock reserves the slot it will occupy and outlines itself in the accent
+color; files, remote locations, and multiple selections show the dock in the
+error color and are not registered.

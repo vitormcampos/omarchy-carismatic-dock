@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Hyprland
+import Quickshell.Io
 import Quickshell.Wayland
 import qs.Commons
 import qs.Commons as Commons
@@ -143,7 +144,8 @@ PanelWindow {
   readonly property bool autohide: !!dock && (dock.autohide || fullscreenMode === 1 || smartObstructed)
   property bool revealed: false
   readonly property bool menuOpen: menuItem !== null || settingsMenu || pickerKey !== ""
-  readonly property bool tucked: autohide && !(revealed || menuOpen || dragging || insertIndex >= 0)
+  readonly property bool tucked: autohide
+    && !(revealed || menuOpen || dragging || insertIndex >= 0 || folderDrop.active)
   readonly property bool contentShown: shown && !tucked
 
   readonly property int gap: Style.spacing.xs
@@ -370,7 +372,8 @@ PanelWindow {
     // Long enough to cross a gap between the edge and the icons, no longer.
     interval: 150
     onTriggered: {
-      if (!bodyHover.hovered && !edgeHover.hovered && !window.menuOpen && !window.dragging) window.revealed = false
+      if (!bodyHover.hovered && !edgeHover.hovered && !window.menuOpen && !window.dragging
+          && !folderDrop.active) window.revealed = false
     }
   }
 
@@ -470,7 +473,9 @@ PanelWindow {
     Grid {
       id: slots
       anchors.centerIn: parent
-      columns: window.vertical ? 1 : appRepeater.count + 1
+      // The extra column holds the drop spacer, which only takes a slot while
+      // a drop target is active, so the row never wraps.
+      columns: window.vertical ? 1 : appRepeater.count + 2
 
       AppsSlot {}
 
@@ -506,6 +511,82 @@ PanelWindow {
           }
         }
       }
+
+      // The spacer that makes room for a drop. A folder from Nautilus lands at
+      // the end of the shortcut group; an app from the grid opens a gap at its
+      // own position (marked below). Growing by one slot keeps every icon
+      // inside the dock's background instead of sliding past its ends.
+      Item {
+        readonly property bool folderSlot: folderDrop.active && folderDrop.valid
+        readonly property bool appSlot: window.insertIndex >= 0
+        readonly property bool reserved: folderSlot || appSlot
+
+        width: reserved ? window.slotSize : 0
+        height: reserved ? window.slotSize : 0
+
+        Behavior on width {
+          NumberAnimation { duration: Style.duration(150); easing.type: Easing.OutCubic }
+        }
+        Behavior on height {
+          NumberAnimation { duration: Style.duration(150); easing.type: Easing.OutCubic }
+        }
+
+        Rectangle {
+          visible: parent.folderSlot
+          anchors.fill: parent
+          anchors.margins: Math.round(window.slotSize * 0.04)
+          radius: Math.round(window.slotSize * 0.22)
+          color: "transparent"
+          border.width: Math.max(1, Style.normalBorderWidth)
+          border.color: Commons.Color.accent
+          opacity: 0.7
+
+          Text {
+            anchors.centerIn: parent
+            text: "+"
+            color: Commons.Color.accent
+            font.family: Style.font.menuFamily
+            font.pixelSize: Math.round(window.iconSize * 0.45)
+          }
+        }
+      }
+    }
+
+    // The slot an app dragged out of the grid will take. The gap itself is
+    // opened by shifting the later slots, so this only marks it.
+    Item {
+      visible: window.insertIndex >= 0
+      x: window.vertical ? window.dockPadding : window.slotStart(window.insertIndex)
+      y: window.vertical ? window.slotStart(window.insertIndex) : window.dockPadding
+      width: window.slotSize
+      height: window.slotSize
+
+      Behavior on x {
+        enabled: !window.vertical
+        NumberAnimation { duration: Style.duration(150); easing.type: Easing.OutCubic }
+      }
+      Behavior on y {
+        enabled: window.vertical
+        NumberAnimation { duration: Style.duration(150); easing.type: Easing.OutCubic }
+      }
+
+      Rectangle {
+        anchors.fill: parent
+        anchors.margins: Math.round(window.slotSize * 0.04)
+        radius: Math.round(window.slotSize * 0.22)
+        color: "transparent"
+        border.width: Math.max(1, Style.normalBorderWidth)
+        border.color: Commons.Color.accent
+        opacity: 0.7
+
+        Text {
+          anchors.centerIn: parent
+          text: "+"
+          color: Commons.Color.accent
+          font.family: Style.font.menuFamily
+          font.pixelSize: Math.round(window.iconSize * 0.45)
+        }
+      }
     }
 
     // Nautilus supplies file:// URLs through Wayland drag-and-drop. The app
@@ -513,6 +594,12 @@ PanelWindow {
     DropArea {
       id: folderDrop
       anchors.fill: parent
+      // External drags are the only ones this target sees; the app grid uses
+      // its own pointer drag and never becomes a QML drag source.
+      readonly property bool active: containsDrag
+      property bool valid: false
+      property string pendingUrl: ""
+      property string checkedUrl: ""
 
       function localFolderUrl(event) {
         if (!event.hasUrls || event.urls.length !== 1) return ""
@@ -520,25 +607,66 @@ PanelWindow {
         return url.indexOf("file://") === 0 ? url : ""
       }
 
-      onEntered: function(drag) {
-        if (localFolderUrl(drag)) drag.accept(Qt.CopyAction)
-        else drag.accepted = false
+      function localPath(url) {
+        var path = url.slice("file://".length)
+        if (path.indexOf("localhost/") === 0) path = path.slice("localhost".length)
+        try { return decodeURIComponent(path) } catch (error) { return "" }
       }
+
+      function track(drag) {
+        var url = localFolderUrl(drag)
+        if (url !== pendingUrl) {
+          pendingUrl = url
+          checkedUrl = url
+          // Optimistic until the check lands, so a folder does not flash red.
+          valid = url !== ""
+          if (url) {
+            pathCheck.running = false
+            pathCheck.command = ["/usr/bin/test", "-d", localPath(url)]
+            pathCheck.running = true
+          }
+        }
+        // An ignored action keeps the "not allowed" cursor while still
+        // receiving moves, so the dock can show why the drop will not work.
+        drag.accept(valid ? Qt.CopyAction : Qt.IgnoreAction)
+      }
+
+      // The drag payload is only a path, so ask the filesystem whether it is a
+      // directory and show files as rejected before the release.
+      Process {
+        id: pathCheck
+        onExited: function(code) {
+          if (folderDrop.pendingUrl === "" || folderDrop.checkedUrl !== folderDrop.pendingUrl) return
+          folderDrop.valid = code === 0
+        }
+      }
+
+      onEntered: function(drag) { track(drag) }
+      onPositionChanged: function(drag) { track(drag) }
+      // The drop is read from the event, not from cached state, so a drag that
+      // ends without an exit still registers only the URL that was checked.
       onDropped: function(drop) {
         var url = localFolderUrl(drop)
-        if (!url || !window.dock) { drop.accepted = false; return }
+        var allowed = valid && url === pendingUrl
+        valid = false
+        pathCheck.running = false
+        if (!allowed || !window.dock) { drop.accepted = false; return }
         drop.accept(Qt.CopyAction)
         Util.execDetached(window.dock.folderCommand() + " add-url " + Util.shellQuote(url))
       }
+    }
 
-      Rectangle {
-        anchors.fill: parent
-        visible: folderDrop.containsDrag
-        radius: Style.cornerRadius
-        color: "transparent"
-        border.width: Math.max(1, Style.normalBorderWidth)
-        border.color: Commons.Color.accent
-      }
+    // One outline for both drop sources: a folder dragged in from Nautilus, or
+    // an app dragged out of the grid. A rejected folder drag turns it to the
+    // error color; an app drag is always acceptable, since it is an app.
+    Rectangle {
+      anchors.fill: parent
+      readonly property bool folderDragging: folderDrop.active
+      visible: folderDragging || window.insertIndex >= 0
+      radius: Style.cornerRadius
+      color: "transparent"
+      border.width: Math.max(1, Style.normalBorderWidth)
+      border.color: folderDragging && !folderDrop.valid ? Commons.Color.urgent : Commons.Color.accent
     }
   }
 
@@ -565,18 +693,6 @@ PanelWindow {
 
   component AppsSlot: Slot {
     id: appsSlot
-
-    property real displayedShift: window.insertIndex >= 0 ? -window.slotSize / 2 : 0
-
-    Behavior on displayedShift {
-      enabled: window.animateShifts
-      NumberAnimation { duration: Style.duration(150); easing.type: Easing.Bezier; easing.bezierCurve: Style.easeOut }
-    }
-
-    transform: Translate {
-      x: window.vertical ? 0 : appsSlot.displayedShift
-      y: window.vertical ? appsSlot.displayedShift : 0
-    }
 
     mouse.onClicked: function(event) {
       if (event.button === Qt.RightButton) {
@@ -656,8 +772,10 @@ PanelWindow {
       : DockModel.workspaceLabel(remoteWorkspaces[0])
 
     // Slots between where the dragged app was and where it would land step
-    // aside to make room; the dragged one follows the pointer.
-    readonly property real shift: window.insertIndex >= 0 ? (index >= window.insertIndex ? 1 : -1) * window.slotSize / 2
+    // aside to make room; the dragged one follows the pointer. An app dragged
+    // in from the grid only pushes the later slots along, so the gap opens
+    // inside the dock and nothing slides out past its background.
+    readonly property real shift: window.insertIndex >= 0 ? (index >= window.insertIndex ? window.slotSize : 0)
       : !window.dragging ? 0
       : lifted ? window.dragOffset
       : (window.dragIndex < index && index <= window.dropIndex) ? window.slotStart(index - 1) - window.slotStart(index)
