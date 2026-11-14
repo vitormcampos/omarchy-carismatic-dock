@@ -66,12 +66,43 @@ plugin runs in Quickshell. `npm test` and `npm run test:js` run once;
 `npm run test:watch` reruns tests when test files or their QML/model inputs change.
 
 The tests execute the positioning functions and drop handler extracted from
-`DockWindow.qml`, plus reorder and pin handlers from `Dock.qml`. They cover
+`src/DockWindow.qml`, plus reorder and pin handlers from `src/Dock.qml`. They cover
 group constraints, explicit pinning, preserved hidden entries, configuration
 reloads, slot boundaries, padding, dividers, dock positions,
 font scales, target consistency, and insertion/reordering behavior without
 launching the desktop shell. Visual Wayland drag-and-drop still needs a manual
 check with temporary files.
 
-See [the testing strategy](specs/005-testing-strategy.md) for the planned native
-QML/Quickshell and Python suites, their scope, and implementation order.
+See [the testing strategy](specs/005-testing-strategy.md) for the native
+QML/Quickshell suites and additional Python scenarios planned next.
+
+### Python and shell helpers
+
+`src/folders.py` contains the importable filesystem operations and their CLI.
+`src/folders.sh` calls this sibling file and handles configuration and notifications;
+keep both files together when installing the plugin. Running the plugin requires
+only the Python standard library, not pytest.
+
+Install test dependencies in a local virtual environment and run the Python suite:
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements-dev.txt
+npm run test:python
+```
+
+`requirements-dev.in` declares the test dependencies; `requirements-dev.txt`
+pins their resolved versions. The Python tests cover folder URLs, icon metadata,
+listing order and limits, move results, and shell dispatch/configuration using
+temporary directories and stubbed notifications. They do not access the real
+shell configuration. `npm test` continues to run the JavaScript suite.
+
+This extraction preserves the existing move behavior. Atomic protection against
+concurrent destination creation remains tracked in
+[spec 004](specs/004-move-without-overwrite.md).
+
+## Project layout
+
+Runtime QML, JavaScript, Python, and shell files live together in `src/`.
+`manifest.json` stays at the plugin root and loads `src/Dock.qml`. Tests live
+in `tests/js/` and `tests/python/`; test configuration remains at the root.

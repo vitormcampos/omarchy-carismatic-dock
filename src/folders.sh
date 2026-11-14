@@ -5,65 +5,16 @@ set -euo pipefail
 
 source omarchy-shell-config
 
+helper="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/folders.py"
+
 case "${1:-}" in
   icon)
     (( $# == 2 )) || fail "icon expects one folder path"
-    python3 - "$2" <<'PY'
-import os
-import subprocess
-import sys
-from urllib.parse import unquote_to_bytes, urlsplit
-
-result = subprocess.run(
-    ["gio", "info", "-a", "standard::icon,metadata::custom-icon,metadata::custom-icon-name", sys.argv[1]],
-    capture_output=True, text=True,
-)
-if result.returncode:
-    sys.exit(0)
-attrs = {}
-for line in result.stdout.splitlines():
-    key, sep, value = line.strip().partition(": ")
-    if sep:
-        attrs[key] = value.strip()
-
-custom = attrs.get("metadata::custom-icon", "")
-if custom:
-    url = urlsplit(custom)
-    if url.scheme == "file" and url.netloc in ("", "localhost"):
-        if os.path.isfile(os.fsdecode(unquote_to_bytes(url.path))):
-            print(custom)
-            sys.exit(0)
-    elif os.path.isabs(custom) and os.path.isfile(custom):
-        print(custom)
-        sys.exit(0)
-
-name = attrs.get("metadata::custom-icon-name", "")
-if name:
-    print(name)
-    sys.exit(0)
-
-name = attrs.get("standard::icon", "").split(",", 1)[0].strip()
-if name not in ("", "folder", "folder-symbolic", "inode-directory", "inode-directory-symbolic"):
-    print(name)
-PY
+    python3 "$helper" icon "$2"
     ;;
   add-url)
     (( $# == 2 )) || fail "add-url expects one local file URL"
-    folder=$(python3 - "$2" <<'PY'
-import json
-import os
-import sys
-from urllib.parse import unquote_to_bytes, urlsplit
-
-url = urlsplit(sys.argv[1])
-if url.scheme != "file" or url.netloc not in ("", "localhost") or url.query or url.fragment:
-    sys.exit(1)
-path = os.path.normpath(os.fsdecode(unquote_to_bytes(url.path)))
-if not os.path.isabs(path) or not os.path.isdir(path):
-    sys.exit(1)
-print(json.dumps({"path": path, "name": os.path.basename(path) or "/"}))
-PY
-    ) || { notify-send 'Carismatic Dock' 'Only local folders can be added'; fail "not a local folder"; }
+    folder=$(python3 "$helper" add-url "$2") || { notify-send 'Carismatic Dock' 'Only local folders can be added'; fail "not a local folder"; }
     commit "$NORMALIZE | .dock.folders = ((.dock.folders // []) | if any(.[];
       (if type == \"object\" then (.path // \"\") else \"\" end | sub(\"/+$\"; \"\")) == (\$folder.path | sub(\"/+$\"; \"\"))
     ) then . else . + [\$folder] end)" --argjson folder "$folder"
@@ -88,53 +39,12 @@ PY
     ;;
   list)
     (( $# == 2 )) || fail "list expects one folder path"
-    python3 - "$2" <<'PY'
-import json
-import os
-import sys
-
-try:
-    with os.scandir(sys.argv[1]) as entries:
-        items = []
-        for entry in entries:
-            if entry.name.startswith("."):
-                continue
-            try:
-                is_dir = entry.is_dir(follow_symlinks=True)
-            except OSError:
-                is_dir = False
-            items.append({"name": entry.name, "path": entry.path, "dir": is_dir})
-except OSError:
-    print("null")
-    sys.exit(0)
-
-items.sort(key=lambda item: (not item["dir"], item["name"].casefold()))
-print(json.dumps(items[:100], ensure_ascii=False))
-PY
+    python3 "$helper" list "$2"
     ;;
   move)
     (( $# == 3 )) || fail "move expects a source path and a folder path"
     status=0
-    python3 - "$2" "$3" <<'PY' || status=$?
-import os
-import shutil
-import sys
-
-source, folder = sys.argv[1], sys.argv[2]
-if not os.path.isabs(source) or not os.path.isabs(folder):
-    sys.exit(1)
-if not os.path.exists(source):
-    sys.exit(2)
-if not os.path.isdir(folder):
-    sys.exit(3)
-target = os.path.join(folder, os.path.basename(source.rstrip("/")))
-if os.path.lexists(target):
-    sys.exit(4)
-try:
-    shutil.move(source, folder)
-except OSError:
-    sys.exit(5)
-PY
+    python3 "$helper" move "$2" "$3" || status=$?
     if (( status != 0 )); then
       if (( status == 4 )); then
         notify-send 'Carismatic Dock' "Already in that folder: $(basename "$2")"
