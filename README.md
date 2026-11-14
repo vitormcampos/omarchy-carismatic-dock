@@ -16,11 +16,11 @@ absolute. `name` and `icon` are optional; the last path component is used as
 the default name. Without an explicit icon, the dock reads the folder icon
 from Nautilus/GIO and falls back to the theme's `folder` icon. Icons refresh on
 load and periodically while the dock is open. Duplicate paths are shown once.
-The icon opens the folder as a stack listing its contents; the first row opens
-the directory itself in the system's default file manager. Missing directories
-stay visible, with a notification when clicked, and their stack reports the
-folder as unavailable. Right-click a folder to see its path or remove it from
-the dock. Drag icons to reorder them;
+Left-click the icon to open the folder in the system's default file manager.
+Right-click to see its name and path, remove it from the dock, or open an item
+from its scrollable list of subfolders and files. The name/path row also opens
+the folder itself. Missing directories stay visible, with a notification when
+clicked, and their context menu reports the folder as unavailable. Drag icons to reorder them;
 the resulting mixed app/folder order is stored in `dock.order`. Applications
 remain in `dock.pinned`; folder paths never become app IDs.
 The dock groups pinned apps, running unpinned apps, and folders in that order,
