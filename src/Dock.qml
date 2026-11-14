@@ -334,7 +334,7 @@ Item {
   }
 
   function folderScriptPath() {
-    return Quickshell.env("HOME") + "/.config/omarchy/plugins/carismatic-dock/folders.sh"
+    return Quickshell.env("HOME") + "/.config/omarchy/plugins/carismatic-dock/src/folders.sh"
   }
 
   function folderCommand() {

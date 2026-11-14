@@ -6,11 +6,11 @@ import { createRequire } from 'node:module';
 // Production JS stays compatible with QML and CommonJS. Refresh the native
 // module cache so watch reruns use the current model.
 const require = createRequire(import.meta.url);
-delete require.cache[require.resolve('../../DockModel.js')];
-const model = require('../../DockModel.js');
+delete require.cache[require.resolve('../../src/DockModel.js')];
+const model = require('../../src/DockModel.js');
 
 // Exercise the actual QML handlers without starting a second desktop shell.
-const source = fs.readFileSync(new URL('../../DockWindow.qml', import.meta.url), 'utf8');
+const source = fs.readFileSync(new URL('../../src/DockWindow.qml', import.meta.url), 'utf8');
 function definition(marker, indent) {
   const start = source.indexOf(marker);
   assert.notStrictEqual(start, -1, marker);

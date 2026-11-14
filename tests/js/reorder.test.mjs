@@ -4,10 +4,10 @@ import vm from 'node:vm';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-delete require.cache[require.resolve('../../DockModel.js')];
-const model = require('../../DockModel.js');
-const dockSource = fs.readFileSync(new URL('../../Dock.qml', import.meta.url), 'utf8');
-const windowSource = fs.readFileSync(new URL('../../DockWindow.qml', import.meta.url), 'utf8');
+delete require.cache[require.resolve('../../src/DockModel.js')];
+const model = require('../../src/DockModel.js');
+const dockSource = fs.readFileSync(new URL('../../src/Dock.qml', import.meta.url), 'utf8');
+const windowSource = fs.readFileSync(new URL('../../src/DockWindow.qml', import.meta.url), 'utf8');
 const plain = value => JSON.parse(JSON.stringify(value));
 
 function loadFunctions(source, names, context) {
