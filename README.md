@@ -39,3 +39,26 @@ Dragging a file onto an app icon opens it in that app, provided the entry
 declares a file argument in its `Exec` line. Dropping a file onto a folder
 shortcut moves it into that folder and never overwrites an existing name.
 Anything else is rejected with a notification.
+
+## Tests
+
+Use Node.js 22.12+ (22.x), 24.x, or 26+ and npm to run the regression tests:
+
+```sh
+npm ci
+npm test
+npm run test:watch
+```
+
+Vitest is a development dependency. npm manages development commands; the
+plugin runs in Quickshell. `npm test` and `npm run test:js` run once;
+`npm run test:watch` reruns tests when test files or their QML/model inputs change.
+
+The tests execute the positioning functions and drop handler extracted from
+`DockWindow.qml`. They cover slot boundaries, padding, dividers, dock positions,
+font scales, target consistency, and insertion/reordering behavior without
+launching the desktop shell. Visual Wayland drag-and-drop still needs a manual
+check with temporary files.
+
+See [the testing strategy](specs/005-testing-strategy.md) for the planned native
+QML/Quickshell and Python suites, their scope, and implementation order.

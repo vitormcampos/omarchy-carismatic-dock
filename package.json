@@ -1,0 +1,17 @@
+{
+  "name": "carismatic-dock",
+  "version": "1.0.0",
+  "private": true,
+  "description": "App and folder dock plugin for the Omarchy shell",
+  "scripts": {
+    "test": "vitest run",
+    "test:js": "vitest run",
+    "test:watch": "vitest --watch"
+  },
+  "engines": {
+    "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
+  },
+  "devDependencies": {
+    "vitest": "^5.1.0"
+  }
+}

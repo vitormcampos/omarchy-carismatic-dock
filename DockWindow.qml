@@ -192,7 +192,8 @@ PanelWindow {
   // Where an app dragged in from the app grid would land, or -1.
   property int insertIndex: -1
   // The item under a file dragged from a file manager, or null.
-  property var fileTargetItem: null
+  readonly property var fileTargetItem: folderDrop.active && folderDrop.checked && !folderDrop.directory
+    ? window.slotItemAt(folderDrop.lastPoint.x - body.x, folderDrop.lastPoint.y - body.y) : null
 
   // Where this window sits on its screen, which a point from the app grid's
   // fullscreen surface is given in: against its edge, clear of the space
@@ -248,12 +249,14 @@ PanelWindow {
     var along = window.vertical ? y : x
     var across = window.vertical ? x : y
     var depth = window.vertical ? body.width : body.height
-    var length = window.vertical ? body.height : body.width
-    if (across < 0 || across > depth) return null
-    if (along < window.dockPadding + window.slotSize || along > length - window.dockPadding) return null
-    var index = window.slotIndexAt(Qt.point(x, y))
-    if (index < 0 || index >= window.workspaceItems.length) return null
-    return window.workspaceItems[index] || null
+    if (across < window.dockPadding || across >= depth - window.dockPadding) return null
+    // Insertion switches slots at their centers; file targets instead own
+    // their full rectangle, excluding the gaps occupied by dividers.
+    for (var i = 0; i < window.workspaceItems.length; i++) {
+      var start = window.slotStart(i)
+      if (along >= start && along < start + window.slotSize) return window.workspaceItems[i]
+    }
+    return null
   }
   property var menuItem: null
   property string pickerKey: ""
@@ -710,6 +713,8 @@ PanelWindow {
       property bool hasLocalUrl: false
       property bool checked: false
       property bool directory: false
+      // Content coordinates keep a stationary pointer aligned with its target
+      // when the dock moves or changes size during an external drag.
       property point lastPoint
 
       function localFolderUrl(event) {
@@ -733,7 +738,7 @@ PanelWindow {
 
       function track(drag) {
         var url = localFolderUrl(drag)
-        lastPoint = Qt.point(drag.x, drag.y)
+        lastPoint = folderDrop.mapToItem(window.contentItem, drag.x, drag.y)
         if (url !== pendingUrl) {
           pendingUrl = url
           checkedUrl = url
@@ -746,9 +751,6 @@ PanelWindow {
             pathCheck.running = true
           }
         }
-        // A folder always claims a shortcut slot, so only files take aim at
-        // the item beneath the pointer.
-        window.fileTargetItem = checked && !directory ? window.slotItemAt(drag.x, drag.y) : null
         // An ignored action keeps the "not allowed" cursor while still
         // receiving moves, so the dock can show why the drop will not work.
         drag.accept(accepted ? Qt.CopyAction : Qt.IgnoreAction)
@@ -762,23 +764,17 @@ PanelWindow {
           if (folderDrop.pendingUrl === "" || folderDrop.checkedUrl !== folderDrop.pendingUrl) return
           folderDrop.checked = true
           folderDrop.directory = code === 0
-          // The pointer may be still while the check finishes, so refresh the
-          // target here rather than waiting for another move.
-          if (folderDrop.active && !folderDrop.directory)
-            window.fileTargetItem = window.slotItemAt(folderDrop.lastPoint.x, folderDrop.lastPoint.y)
         }
       }
 
       onEntered: function(drag) { track(drag) }
       onPositionChanged: function(drag) { track(drag) }
-      onExited: window.fileTargetItem = null
       // The drop is read from the event, not from cached state, so a drag that
       // ends without an exit still registers only the URL that was checked.
       onDropped: function(drop) {
         var url = localFolderUrl(drop)
         var checkedHere = checked
         var isFolder = directory
-        window.fileTargetItem = null
         pathCheck.running = false
         if (!url || !window.dock) { drop.accepted = false; return }
         // An unresolved check falls back to the shortcut path, which validates
