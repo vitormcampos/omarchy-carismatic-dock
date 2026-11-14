@@ -166,7 +166,7 @@ PanelWindow {
   readonly property color themeBackground: Commons.Color.bar.background
   readonly property color glassBackground: Qt.rgba(themeBackground.r, themeBackground.g,
     themeBackground.b, Math.min(themeBackground.a, 0.35))
-  readonly property int iconSize: Math.round(36 * Style.fontScale)
+  readonly property int iconSize: Math.round(44 * Style.fontScale)
   // Each app has a square slot with its icon in the middle, and the slots run
   // straight to the edge of the dock.
   readonly property int iconInset: Style.spacing.md
@@ -174,9 +174,9 @@ PanelWindow {
   // A pinned app that is not running is drawn faded.
   readonly property real idleOpacity: 0.7
   // Room inward of the dock for its menus: the apps button's menu has five
-  // rows. A folder stack asks for nine, growing the window along its inward
-  // axis; the dock keeps its edge, since only the free side moves.
-  readonly property int popupRows: stackItem !== null ? 9 : 5
+  // rows. A folder menu asks for ten (two actions and eight entries), growing
+  // the window inward; the dock keeps its edge, since only the free side moves.
+  readonly property int popupRows: stackItem !== null ? 10 : 5
   readonly property int popupRoom: Style.spacing.popupRowHeight * popupRows + Style.spacing.sm * 2 + Style.normalBorderWidth * 2 + gap * 2
   // Icons pop away from the screen edge.
   readonly property int popOrigin: position === "top" ? Item.Top
@@ -295,6 +295,10 @@ PanelWindow {
   }
 
   function openMenu(item, slot) {
+    if (item && item.type === "folder") {
+      window.openStack(item, slot)
+      return
+    }
     window.pickerKey = ""
     window.settingsMenu = false
     window.closeStack()
@@ -364,7 +368,7 @@ PanelWindow {
   // empty.
   function openStack(item, slot) {
     if (!item || item.type !== "folder" || !window.dock) return
-    window.menuItem = null
+    window.menuItem = item
     window.pickerKey = ""
     window.settingsMenu = false
     window.stackItem = item
@@ -842,6 +846,9 @@ PanelWindow {
   component AppsSlot: Slot {
     id: appsSlot
 
+    // Follow the dock surface when the shell theme changes.
+    readonly property bool darkTheme: window.themeBackground.hslLightness < 0.5
+
     mouse.onClicked: function(event) {
       if (event.button === Qt.RightButton) {
         window.openSettingsMenu(appsSlot)
@@ -851,37 +858,20 @@ PanelWindow {
       if (window.dock) window.dock.openApps()
     }
 
-    // A grid of app squares reads as "all apps" in any icon theme. Drawn
-    // rather than taken from a font, so its edges stay crisp on the
-    // transparent dock and it fills its slot like the app icons beside it.
-    Item {
+    Image {
       x: window.iconInset
       y: window.iconInset
       width: window.iconSize
       height: window.iconSize
+      source: Qt.resolvedUrl(appsSlot.darkTheme ? "assets/menu-dark.svg" : "assets/menu-light.svg")
+      sourceSize: Qt.size(window.iconSize * 2, window.iconSize * 2)
+      fillMode: Image.PreserveAspectFit
+      smooth: true
+      mipmap: true
       scale: appsSlot.hovered ? 1.15 : 1
       transformOrigin: window.popOrigin
 
       Behavior on scale { NumberAnimation { duration: Style.duration(120); easing.type: Easing.OutCubic } }
-
-      Grid {
-        readonly property int square: Math.round(window.iconSize * 0.22)
-
-        anchors.centerIn: parent
-        columns: 3
-        spacing: Math.round(window.iconSize * 0.1)
-
-        Repeater {
-          model: 9
-
-          delegate: Rectangle {
-            width: parent.square
-            height: parent.square
-            radius: Math.max(1, Math.round(parent.square * 0.2))
-            color: Commons.Color.bar.text
-          }
-        }
-      }
     }
   }
 
@@ -997,14 +987,8 @@ PanelWindow {
         return
       }
       var folder = !!appSlot.modelData && appSlot.modelData.type === "folder"
-      if (folder && event.button === Qt.LeftButton && window.stackItem
-          && window.stackItem.path === appSlot.modelData.path) {
-        window.closeMenu()
-        return
-      }
       window.closeMenu()
-      if (event.button === Qt.MiddleButton) window.dock.launch(appSlot.modelData)
-      else if (folder) window.openStack(appSlot.modelData, appSlot)
+      if (folder || event.button === Qt.MiddleButton) window.dock.launch(appSlot.modelData)
       else if (appSlot.windowCount > 1) window.openWindowPicker(appSlot.modelData, appSlot)
       else window.dock.activate(appSlot.modelData, window.workspaceId)
     }
@@ -1171,26 +1155,14 @@ PanelWindow {
 
       MenuRow {
         visible: menu.folder
+        measured: true
         text: menu.item ? menu.item.name + " · " + menu.item.path : ""
         onTriggered: window.dock.launch(menu.item)
       }
 
-      MenuRow {
-        visible: menu.folder
-        text: "Remove folder from dock"
-        onTriggered: window.dock.removeFolder(menu.item)
-      }
-
-      MenuRow {
-        visible: menu.stack
-        measured: true
-        text: "Open in Files"
-        onTriggered: if (window.stackItem) window.dock.launch(window.stackItem)
-      }
-
-      // A hairline keeps the fixed row apart from the list it leads to.
+      // Separate the folder heading from the contents and status below.
       Rectangle {
-        visible: menu.stack && window.stackEntries.length > 0
+        visible: menu.stack
         width: parent.width
         height: visible ? Math.max(1, Style.normalBorderWidth) : 0
         color: Commons.Color.popups.border
@@ -1216,7 +1188,7 @@ PanelWindow {
         visible: menu.stack && window.stackEntries.length > 0
         width: parent.width
         implicitWidth: stackRows.implicitWidth
-        // Eight entries plus the row above stay inside the surface: any more
+        // Eight entries plus the two actions stay inside the surface: any more
         // scrolls, with the thumb below showing there is more.
         height: visible ? Math.min(stackRows.implicitHeight, Style.spacing.popupRowHeight * 8) : 0
         contentHeight: stackRows.implicitHeight
@@ -1259,6 +1231,13 @@ PanelWindow {
           y: Style.space(2) + (trackHeight - height)
             * (stackFlick.contentY / Math.max(1, stackFlick.contentHeight - stackFlick.height))
         }
+      }
+
+      MenuRow {
+        visible: menu.folder
+        measured: true
+        text: Commons.I18n.t("dock.removeFromDock")
+        onTriggered: window.dock.removeFolder(menu.item)
       }
 
       MenuRow {
