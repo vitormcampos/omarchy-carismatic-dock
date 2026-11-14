@@ -29,7 +29,7 @@ function fixture(position = 'bottom', scale = 1, groups = [2, 2, 2]) {
       cursor += gap;
     }
     for (let i = 0; i < count; i++) {
-      const item = { key: `${group}:${i}`, type: group === 2 ? 'folder' : 'app' };
+      const item = { key: `${group}:${i}`, type: group === 2 ? 'folder' : 'app', pinned: group === 0 };
       items.push(item);
       rects.push({ start: cursor, end: cursor + size, item });
       cursor += size;
@@ -38,7 +38,7 @@ function fixture(position = 'bottom', scale = 1, groups = [2, 2, 2]) {
   const vertical = model.isVertical(position);
   const calls = [];
   const context = {
-    vertical, dockPadding: padding, slotSize: size, dividerSpace: gap,
+    DockModel: model, vertical, dockPadding: padding, slotSize: size, dividerSpace: gap,
     dividerIndexes: dividers, workspaceItems: items,
     workspaceItemModel: { count: items.length },
     body: { x: 100, y: 200, width: vertical ? size + 2 * padding : cursor + padding,

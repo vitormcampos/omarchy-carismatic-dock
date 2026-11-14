@@ -320,7 +320,7 @@ Item {
 
   // Moves a shortcut or app to a slot, persisting the mixed order and the
   // desktop-only pinned list in one atomic config update.
-  function placeAt(key, index, visibleKeys) {
+  function placeAt(key, index, visibleKeys, pin) {
     if (!key) return
     var keys = visibleKeys || root.shownKeys()
     var visibleOrder = DockModel.orderWithKeyAt(keys, key, index)
@@ -329,7 +329,7 @@ Item {
     }))
     var pinned = {}
     root.pinnedKeys.forEach(function(other) { pinned[other] = true })
-    if (key.indexOf("folder:") !== 0) pinned[key] = true
+    if (pin && key.indexOf("folder:") !== 0) pinned[key] = true
     root.saveOrder(DockModel.pinsInOrder(root.order, pinned, root.pinnedKeys))
   }
 
@@ -355,23 +355,30 @@ Item {
 
   function moveItem(fromIndex, toIndex, visibleKeys) {
     var keys = visibleKeys || root.shownKeys()
-    if (fromIndex !== toIndex) root.placeAt(keys[fromIndex], toIndex, keys)
+    var items = keys.map(function(key) {
+      return { key: key, type: key.indexOf("folder:") === 0 ? "folder" : "app", pinned: root.isPinned(key) }
+    })
+    var target = DockModel.moveTarget(items, fromIndex, toIndex)
+    if (target && fromIndex !== target.index) root.placeAt(keys[fromIndex], target.index, keys, target.pin)
   }
 
   // An app dropped before the slot at index, counted as the slots stand.
   function pinAt(key, index, visibleKeys) {
     var keys = visibleKeys || root.shownKeys()
+    var pinCount = keys.filter(function(other) { return other.indexOf("folder:") !== 0 && root.isPinned(other) }).length
+    index = Math.max(0, Math.min(pinCount, index))
     var from = keys.indexOf(key)
-    root.placeAt(key, from >= 0 && from < index ? index - 1 : index, keys)
+    root.placeAt(key, from >= 0 && from < index ? index - 1 : index, keys, true)
   }
 
-  // Keeping an app in the dock puts it at the end; taking one out leaves it in
-  // its slot while it still runs.
+  // Keeping an app puts it at the end of the pinned group; taking one out
+  // leaves it in its slot while it still runs.
   function setPinned(key, pinned, visibleKeys) {
     if (!key) return
     if (pinned) {
       var keys = visibleKeys || root.shownKeys()
-      root.placeAt(key, keys.length, keys)
+      var pinCount = keys.filter(function(other) { return other.indexOf("folder:") !== 0 && root.isPinned(other) }).length
+      root.pinAt(key, pinCount, keys)
     } else {
       root.pendingPins = root.pinnedKeys.filter(function(other) { return other !== key })
       Util.execDetached("omarchy-dock unpin " + Util.shellQuote(key))

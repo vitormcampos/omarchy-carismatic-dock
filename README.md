@@ -26,8 +26,15 @@ remain in `dock.pinned`; folder paths never become app IDs.
 The dock groups pinned apps, running unpinned apps, and folders in that order,
 with a divider only between groups that are present. Dragging a running app
 into the pinned section pins it; folders can be reordered within their group.
+Reordering running apps within the unpinned group keeps them unpinned. Pinned
+apps stay within their group when dragged, and unpinning remains a menu action.
+Only a visible pinned app slot pins an internally dragged app; when that group
+is empty, use the app grid or “Keep in dock” to pin an app. The drag preview
+uses the same group limits as the final placement. Order and pins are saved
+together, retaining entries that are not currently visible or installed.
 Dragging an app out of the app grid pins it at the marked slot, which stays
-inside the dock instead of pushing its ends past the background.
+within the pinned group (or at its start when empty), inside the dock instead
+of pushing its ends past the background.
 
 With the dock visible, drag one local folder from Nautilus onto it to add a
 shortcut automatically using the folder's name. While a valid folder hovers,
@@ -42,6 +49,10 @@ Anything else is rejected with a notification.
 
 ## Tests
 
+After editing QML or imported JavaScript, if the dock still behaves as before,
+run `omarchy restart shell`. The plugin rescan can retain cached components
+even when the shell logs that the local plugin was reloaded.
+
 Use Node.js 22.12+ (22.x), 24.x, or 26+ and npm to run the regression tests:
 
 ```sh
@@ -55,7 +66,9 @@ plugin runs in Quickshell. `npm test` and `npm run test:js` run once;
 `npm run test:watch` reruns tests when test files or their QML/model inputs change.
 
 The tests execute the positioning functions and drop handler extracted from
-`DockWindow.qml`. They cover slot boundaries, padding, dividers, dock positions,
+`DockWindow.qml`, plus reorder and pin handlers from `Dock.qml`. They cover
+group constraints, explicit pinning, preserved hidden entries, configuration
+reloads, slot boundaries, padding, dividers, dock positions,
 font scales, target consistency, and insertion/reordering behavior without
 launching the desktop shell. Visual Wayland drag-and-drop still needs a manual
 check with temporary files.

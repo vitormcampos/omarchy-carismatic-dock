@@ -204,6 +204,23 @@ function groupItems(items) {
   return groups[0].concat(groups[1], groups[2])
 }
 
+// Classify the destination before moving anything. Only an existing pinned
+// app slot expresses pinning intent; folders and pinned apps stay in their group.
+function moveTarget(items, fromIndex, toIndex) {
+  if (!items || !items[fromIndex] || !items[toIndex]) return null
+  var group = itemGroup(items[fromIndex])
+  var pin = group === 1 && itemGroup(items[toIndex]) === 0
+  var first = fromIndex, last = fromIndex
+  for (var i = 0; i < items.length; i++) {
+    var candidate = itemGroup(items[i])
+    if (candidate === group || (group === 1 && candidate === 0)) {
+      first = Math.min(first, i)
+      last = Math.max(last, i)
+    }
+  }
+  return { index: Math.max(first, Math.min(last, toIndex)), pin: pin }
+}
+
 // Zero-based indexes of items preceded by a different, non-empty group.
 function dividersBefore(items) {
   var result = []
@@ -279,7 +296,9 @@ if (typeof module !== "undefined") {
     claimingEntryId: claimingEntryId,
     buildItems: buildItems,
     orderItems: orderItems,
+    itemGroup: itemGroup,
     groupItems: groupItems,
+    moveTarget: moveTarget,
     dividersBefore: dividersBefore,
     orderWithKeyAt: orderWithKeyAt,
     dropIndex: dropIndex,

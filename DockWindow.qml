@@ -59,7 +59,16 @@ PanelWindow {
       var delta = Math.abs(at - slotStart(i))
       if (delta < distance) { distance = delta; target = i }
     }
-    return target
+    var destination = DockModel.moveTarget(workspaceItems, index, target)
+    return destination ? destination.index : index
+  }
+
+  function constrainedDragOffset(index, offset) {
+    var first = DockModel.moveTarget(workspaceItems, index, 0)
+    var last = DockModel.moveTarget(workspaceItems, index, workspaceItems.length - 1)
+    if (!first || !last) return 0
+    return Math.max(slotStart(first.index) - slotStart(index),
+      Math.min(slotStart(last.index) - slotStart(index), offset))
   }
   readonly property var workspaceItemsByKey: {
     var result = {}
@@ -219,7 +228,8 @@ PanelWindow {
     var depth = window.vertical ? body.width : body.height
     var near = along >= -window.slotSize && along <= length + window.slotSize && across >= -reach && across <= depth + reach
     if (window.shown && window.autohide && near) window.revealed = true
-    window.insertIndex = window.shown && near ? window.slotIndexAt(point) : -1
+    var pinCount = window.workspaceItems.filter(function(item) { return DockModel.itemGroup(item) === 0 }).length
+    window.insertIndex = window.shown && near ? Math.min(pinCount, window.slotIndexAt(point)) : -1
   }
 
   function dropExternalDrag(screenX, screenY, key) {
@@ -960,7 +970,7 @@ PanelWindow {
         window.dragIndex = appSlot.index
       }
       if (!appSlot.lifted) return
-      window.dragOffset = delta
+      window.dragOffset = window.constrainedDragOffset(appSlot.index, delta)
       window.dropIndex = window.draggedIndex(appSlot.index, delta)
     }
 
