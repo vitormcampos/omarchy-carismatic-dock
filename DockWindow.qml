@@ -144,6 +144,7 @@ PanelWindow {
   readonly property bool autohide: !!dock && (dock.autohide || fullscreenMode === 1 || smartObstructed)
   property bool revealed: false
   readonly property bool menuOpen: menuItem !== null || settingsMenu || pickerKey !== ""
+    || stackItem !== null
   readonly property bool tucked: autohide
     && !(revealed || menuOpen || dragging || insertIndex >= 0 || folderDrop.active)
   readonly property bool contentShown: shown && !tucked
@@ -163,9 +164,11 @@ PanelWindow {
   readonly property int slotSize: iconSize + iconInset * 2
   // A pinned app that is not running is drawn faded.
   readonly property real idleOpacity: 0.7
-  // Room inward of the dock for its menus: the tallest, the apps button's,
-  // has five rows.
-  readonly property int popupRoom: Style.spacing.popupRowHeight * 5 + Style.spacing.sm * 2 + Style.normalBorderWidth * 2 + gap * 2
+  // Room inward of the dock for its menus: the apps button's menu has five
+  // rows. A folder stack asks for nine, growing the window along its inward
+  // axis; the dock keeps its edge, since only the free side moves.
+  readonly property int popupRows: stackItem !== null ? 9 : 5
+  readonly property int popupRoom: Style.spacing.popupRowHeight * popupRows + Style.spacing.sm * 2 + Style.normalBorderWidth * 2 + gap * 2
   // Icons pop away from the screen edge.
   readonly property int popOrigin: position === "top" ? Item.Top
     : position === "left" ? Item.Left
@@ -188,6 +191,8 @@ PanelWindow {
   property point dropPoint
   // Where an app dragged in from the app grid would land, or -1.
   property int insertIndex: -1
+  // The item under a file dragged from a file manager, or null.
+  property var fileTargetItem: null
 
   // Where this window sits on its screen, which a point from the app grid's
   // fullscreen surface is given in: against its edge, clear of the space
@@ -236,11 +241,30 @@ PanelWindow {
       if (along < window.slotStart(i) + window.slotSize / 2) return i
     return count
   }
+
+  // The dock item under a point in body coordinates, or null. The apps button
+  // owns the first slot and is never a drop target.
+  function slotItemAt(x, y) {
+    var along = window.vertical ? y : x
+    var across = window.vertical ? x : y
+    var depth = window.vertical ? body.width : body.height
+    var length = window.vertical ? body.height : body.width
+    if (across < 0 || across > depth) return null
+    if (along < window.dockPadding + window.slotSize || along > length - window.dockPadding) return null
+    var index = window.slotIndexAt(Qt.point(x, y))
+    if (index < 0 || index >= window.workspaceItems.length) return null
+    return window.workspaceItems[index] || null
+  }
   property var menuItem: null
   property string pickerKey: ""
   property Item menuSlot: null
   // The apps button's menu: where the dock sits and whether it hides.
   property bool settingsMenu: false
+  // A folder's contents, opened as a stack above its icon.
+  property var stackItem: null
+  property var stackEntries: []
+  property bool stackUnavailable: false
+  property bool stackLoading: false
 
   onWorkspaceIdChanged: {
     closeMenu()
@@ -260,6 +284,7 @@ PanelWindow {
   function openMenu(item, slot) {
     window.pickerKey = ""
     window.settingsMenu = false
+    window.closeStack()
     window.menuItem = item
     window.menuSlot = slot
   }
@@ -268,6 +293,7 @@ PanelWindow {
     window.menuItem = null
     window.pickerKey = ""
     window.settingsMenu = true
+    window.closeStack()
     window.menuSlot = slot
   }
 
@@ -276,6 +302,7 @@ PanelWindow {
     window.menuItem = null
     window.settingsMenu = false
     window.pickerKey = item.key
+    window.closeStack()
     window.menuSlot = slot
   }
 
@@ -302,12 +329,92 @@ PanelWindow {
     window.dragOffset = 0
   }
 
+  function closeStack() {
+    window.stackItem = null
+    window.stackEntries = []
+    window.stackUnavailable = false
+    window.stackLoading = false
+    stackProc.running = false
+  }
+
   function closeMenu() {
     window.menuItem = null
     window.pickerKey = ""
     window.settingsMenu = false
     window.menuSlot = null
+    window.closeStack()
     if (window.autohide) hideTimer.restart()
+  }
+
+  // The folder stack lists its contents through the same helper the dock uses
+  // to persist shortcuts, so a missing folder is reported instead of looking
+  // empty.
+  function openStack(item, slot) {
+    if (!item || item.type !== "folder" || !window.dock) return
+    window.menuItem = null
+    window.pickerKey = ""
+    window.settingsMenu = false
+    window.stackItem = item
+    window.menuSlot = slot
+    window.stackEntries = []
+    window.stackUnavailable = false
+    window.stackLoading = true
+    stackProc.running = false
+    stackProc.command = [window.dock.folderScriptPath(), "list", item.path]
+    stackProc.running = true
+  }
+
+  Process {
+    id: stackProc
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var raw = text.trim()
+        if (raw === "null") {
+          window.stackEntries = []
+          window.stackUnavailable = true
+          return
+        }
+        try {
+          var parsed = raw === "" ? [] : JSON.parse(raw)
+          window.stackEntries = Array.isArray(parsed) ? parsed : []
+        } catch (error) {
+          window.stackEntries = []
+          window.stackUnavailable = true
+        }
+      }
+    }
+    onExited: function(code) {
+      if (!window.stackItem) return
+      window.stackLoading = false
+      if (code !== 0) window.stackUnavailable = true
+    }
+  }
+
+  // Icons for stack rows come from the file extension; a GIO lookup per item
+  // would cost a process per row for little gain in a short popup.
+  function stackIcon(entry) {
+    if (!entry) return ""
+    if (entry.dir) return window.dock ? window.dock.appLibrary.iconSource("folder") : Quickshell.iconPath("folder", true)
+    return window.dock ? window.dock.appLibrary.iconSource(window.stackMimeIcon(entry.name)) : Quickshell.iconPath(window.stackMimeIcon(entry.name), true)
+  }
+
+  function stackMimeIcon(name) {
+    var text = String(name || "")
+    var dot = text.lastIndexOf(".")
+    var ext = dot > 0 ? text.slice(dot + 1).toLowerCase() : ""
+    var icons = {
+      txt: "text-x-generic", md: "text-x-generic", log: "text-x-generic", json: "text-x-generic",
+      pdf: "application-pdf", html: "text-html",
+      png: "image-x-generic", jpg: "image-x-generic", jpeg: "image-x-generic", gif: "image-x-generic",
+      webp: "image-x-generic", svg: "image-x-generic", bmp: "image-x-generic",
+      mp4: "video-x-generic", mkv: "video-x-generic", webm: "video-x-generic", mov: "video-x-generic",
+      mp3: "audio-x-generic", flac: "audio-x-generic", wav: "audio-x-generic", ogg: "audio-x-generic",
+      zip: "package-x-generic", tar: "package-x-generic", gz: "package-x-generic",
+      "7z": "package-x-generic", rar: "package-x-generic", deb: "package-x-generic", pkg: "package-x-generic",
+      sh: "text-x-script", py: "text-x-script", js: "text-x-script", ts: "text-x-script",
+      desktop: "application-x-desktop"
+    }
+    return icons[ext] || "text-x-generic"
   }
 
   // Places the menu inward of the dock, centered on a slot.
@@ -517,7 +624,8 @@ PanelWindow {
       // own position (marked below). Growing by one slot keeps every icon
       // inside the dock's background instead of sliding past its ends.
       Item {
-        readonly property bool folderSlot: folderDrop.active && folderDrop.valid
+        readonly property bool folderSlot: folderDrop.active && folderDrop.hasLocalUrl
+          && folderDrop.directory
         readonly property bool appSlot: window.insertIndex >= 0
         readonly property bool reserved: folderSlot || appSlot
 
@@ -597,9 +705,12 @@ PanelWindow {
       // External drags are the only ones this target sees; the app grid uses
       // its own pointer drag and never becomes a QML drag source.
       readonly property bool active: containsDrag
-      property bool valid: false
       property string pendingUrl: ""
       property string checkedUrl: ""
+      property bool hasLocalUrl: false
+      property bool checked: false
+      property bool directory: false
+      property point lastPoint
 
       function localFolderUrl(event) {
         if (!event.hasUrls || event.urls.length !== 1) return ""
@@ -613,52 +724,83 @@ PanelWindow {
         try { return decodeURIComponent(path) } catch (error) { return "" }
       }
 
+      // Only a single local path is any use here: folders become shortcuts,
+      // files open in the app, or move into the folder, under the pointer.
+      // While the path is still unchecked the drag looks acceptable, so a
+      // folder does not flash the error color on entry.
+      readonly property bool accepted: hasLocalUrl && (!checked || directory
+        || window.fileTargetItem !== null)
+
       function track(drag) {
         var url = localFolderUrl(drag)
+        lastPoint = Qt.point(drag.x, drag.y)
         if (url !== pendingUrl) {
           pendingUrl = url
           checkedUrl = url
-          // Optimistic until the check lands, so a folder does not flash red.
-          valid = url !== ""
+          hasLocalUrl = url !== ""
+          checked = false
+          directory = false
           if (url) {
             pathCheck.running = false
             pathCheck.command = ["/usr/bin/test", "-d", localPath(url)]
             pathCheck.running = true
           }
         }
+        // A folder always claims a shortcut slot, so only files take aim at
+        // the item beneath the pointer.
+        window.fileTargetItem = checked && !directory ? window.slotItemAt(drag.x, drag.y) : null
         // An ignored action keeps the "not allowed" cursor while still
         // receiving moves, so the dock can show why the drop will not work.
-        drag.accept(valid ? Qt.CopyAction : Qt.IgnoreAction)
+        drag.accept(accepted ? Qt.CopyAction : Qt.IgnoreAction)
       }
 
       // The drag payload is only a path, so ask the filesystem whether it is a
-      // directory and show files as rejected before the release.
+      // directory before deciding what a release will do.
       Process {
         id: pathCheck
         onExited: function(code) {
           if (folderDrop.pendingUrl === "" || folderDrop.checkedUrl !== folderDrop.pendingUrl) return
-          folderDrop.valid = code === 0
+          folderDrop.checked = true
+          folderDrop.directory = code === 0
+          // The pointer may be still while the check finishes, so refresh the
+          // target here rather than waiting for another move.
+          if (folderDrop.active && !folderDrop.directory)
+            window.fileTargetItem = window.slotItemAt(folderDrop.lastPoint.x, folderDrop.lastPoint.y)
         }
       }
 
       onEntered: function(drag) { track(drag) }
       onPositionChanged: function(drag) { track(drag) }
+      onExited: window.fileTargetItem = null
       // The drop is read from the event, not from cached state, so a drag that
       // ends without an exit still registers only the URL that was checked.
       onDropped: function(drop) {
         var url = localFolderUrl(drop)
-        var allowed = valid && url === pendingUrl
-        valid = false
+        var checkedHere = checked
+        var isFolder = directory
+        window.fileTargetItem = null
         pathCheck.running = false
-        if (!allowed || !window.dock) { drop.accepted = false; return }
+        if (!url || !window.dock) { drop.accepted = false; return }
+        // An unresolved check falls back to the shortcut path, which validates
+        // the folder again in the helper before writing anything.
+        if (isFolder || !checkedHere) {
+          drop.accept(Qt.CopyAction)
+          Util.execDetached(window.dock.folderCommand() + " add-url " + Util.shellQuote(url))
+          return
+        }
+        var item = window.slotItemAt(drop.x, drop.y)
+        if (!item) {
+          drop.accepted = false
+          Util.execDetached("notify-send 'Carismatic Dock' 'Drop the file on an app or folder icon'")
+          return
+        }
         drop.accept(Qt.CopyAction)
-        Util.execDetached(window.dock.folderCommand() + " add-url " + Util.shellQuote(url))
+        window.dock.openDroppedFile(item, localPath(url))
       }
     }
 
-    // One outline for both drop sources: a folder dragged in from Nautilus, or
-    // an app dragged out of the grid. A rejected folder drag turns it to the
-    // error color; an app drag is always acceptable, since it is an app.
+    // One outline for both drop sources: a file manager drag, or an app dragged
+    // out of the grid. A drag that will do nothing turns it to the error color.
     Rectangle {
       anchors.fill: parent
       readonly property bool folderDragging: folderDrop.active
@@ -666,7 +808,7 @@ PanelWindow {
       radius: Style.cornerRadius
       color: "transparent"
       border.width: Math.max(1, Style.normalBorderWidth)
-      border.color: folderDragging && !folderDrop.valid ? Commons.Color.urgent : Commons.Color.accent
+      border.color: folderDragging && !folderDrop.accepted ? Commons.Color.urgent : Commons.Color.accent
     }
   }
 
@@ -761,6 +903,8 @@ PanelWindow {
     }
     readonly property bool lifted: window.dragIndex === index
     onLiftedChanged: if (lifted) launchHop.stop()
+    // A file dropped here opens in this app, or moves into this folder.
+    readonly property bool fileTarget: !!window.fileTargetItem && window.fileTargetItem.key === key
     readonly property bool clickPressed: mouse.pressed && !dragged && !window.dragging
       && !!(mouse.pressedButtons & (Qt.LeftButton | Qt.MiddleButton))
     property point pressPoint
@@ -846,8 +990,15 @@ PanelWindow {
         window.openMenu(appSlot.modelData, appSlot)
         return
       }
+      var folder = !!appSlot.modelData && appSlot.modelData.type === "folder"
+      if (folder && event.button === Qt.LeftButton && window.stackItem
+          && window.stackItem.path === appSlot.modelData.path) {
+        window.closeMenu()
+        return
+      }
       window.closeMenu()
       if (event.button === Qt.MiddleButton) window.dock.launch(appSlot.modelData)
+      else if (folder) window.openStack(appSlot.modelData, appSlot)
       else if (appSlot.windowCount > 1) window.openWindowPicker(appSlot.modelData, appSlot)
       else window.dock.activate(appSlot.modelData, window.workspaceId)
     }
@@ -889,7 +1040,7 @@ PanelWindow {
         y: window.vertical ? appSlot.displayedShift
           : (window.position === "top" ? appSlot.hopOffset : -appSlot.hopOffset)
       }
-      scale: (appSlot.lifted || appSlot.hovered ? 1.15 : 1) * (appSlot.clickPressed ? 0.93 : 1)
+      scale: (appSlot.lifted || appSlot.hovered || appSlot.fileTarget ? 1.15 : 1) * (appSlot.clickPressed ? 0.93 : 1)
       transformOrigin: window.popOrigin
 
       Behavior on scale {
@@ -898,6 +1049,21 @@ PanelWindow {
           easing.type: Easing.OutCubic
         }
       }
+    }
+
+    // Marks the icon a file dragged from a file manager will land on. Drawn
+    // around the artwork so it reads as a target, not a selection.
+    Rectangle {
+      visible: appSlot.fileTarget
+      x: window.iconInset - Style.space(3)
+      y: window.iconInset - Style.space(3)
+      width: window.iconSize + Style.space(6)
+      height: window.iconSize + Style.space(6)
+      radius: Math.round(Style.cornerRadius * 0.7)
+      color: "transparent"
+      border.width: Math.max(2, Style.normalBorderWidth)
+      border.color: Commons.Color.accent
+      opacity: 0.9
     }
 
     // A workspace number identifies running windows outside this screen's
@@ -946,11 +1112,17 @@ PanelWindow {
     readonly property bool hasEntry: !!item && !!window.dock && !!window.dock.entryFor(item)
     readonly property bool folder: !!item && item.type === "folder"
     readonly property bool running: !!item && item.windows.length > 0
+    readonly property bool stack: !!window.stackItem
 
-    visible: window.contentShown && (!!item || window.settingsMenu || !!pickerItem)
-    width: pickerItem
-      ? Math.min(Style.space(340), window.vertical ? window.popupRoom - window.gap * 2 : window.width - window.gap * 2)
-      : Math.max(Style.space(140), menuColumn.implicitWidth) + padding * 2
+    visible: window.contentShown && (!!item || window.settingsMenu || !!pickerItem || stack)
+    // The most any popup can take without leaving the surface.
+    readonly property int room: window.vertical
+      ? window.popupRoom - window.gap * 2 : window.width - window.gap * 2
+    width: stack
+      ? Math.max(Style.space(160), Math.min(menuColumn.implicitWidth + padding * 2, Math.min(Style.space(340), room)))
+      : pickerItem
+        ? Math.min(Style.space(340), room)
+        : Math.max(Style.space(140), menuColumn.implicitWidth) + padding * 2
     height: menuColumn.implicitHeight + padding * 2
     x: window.popupX(window.menuSlot, menu)
     y: window.popupY(window.menuSlot, menu)
@@ -1004,6 +1176,86 @@ PanelWindow {
       }
 
       MenuRow {
+        visible: menu.stack
+        measured: true
+        text: "Open in Files"
+        onTriggered: if (window.stackItem) window.dock.launch(window.stackItem)
+      }
+
+      // A hairline keeps the fixed row apart from the list it leads to.
+      Rectangle {
+        visible: menu.stack && window.stackEntries.length > 0
+        width: parent.width
+        height: visible ? Math.max(1, Style.normalBorderWidth) : 0
+        color: Commons.Color.popups.border
+        opacity: 0.5
+      }
+
+      MenuRow {
+        visible: menu.stack && window.stackUnavailable
+        text: "Folder unavailable"
+        selectable: false
+      }
+
+      MenuRow {
+        visible: menu.stack && !window.stackUnavailable && !window.stackLoading
+          && window.stackEntries.length === 0
+        text: "Empty folder"
+        selectable: false
+      }
+
+      Flickable {
+        id: stackFlick
+
+        visible: menu.stack && window.stackEntries.length > 0
+        width: parent.width
+        implicitWidth: stackRows.implicitWidth
+        // Eight entries plus the row above stay inside the surface: any more
+        // scrolls, with the thumb below showing there is more.
+        height: visible ? Math.min(stackRows.implicitHeight, Style.spacing.popupRowHeight * 8) : 0
+        contentHeight: stackRows.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+
+        Column {
+          id: stackRows
+          width: parent.width
+
+          Repeater {
+            model: window.stackEntries
+
+            delegate: MenuRow {
+              required property var modelData
+
+              measured: true
+              text: modelData.name
+              iconSource: window.stackIcon(modelData)
+              // The thumb draws over the last few pixels; keep the label clear.
+              trailing: Style.space(6)
+              onTriggered: Util.execDetached("xdg-open " + Util.shellQuote(modelData.path))
+            }
+          }
+        }
+
+        // Only shown when the folder holds more than fits; the thumb size and
+        // position track the visible fraction.
+        Rectangle {
+          readonly property bool needed: stackFlick.contentHeight > stackFlick.height + 1
+          readonly property real trackHeight: stackFlick.height - Style.space(4)
+
+          visible: needed
+          width: Math.max(2, Style.normalBorderWidth)
+          height: needed ? Math.max(Style.space(16), trackHeight * stackFlick.height / stackFlick.contentHeight) : 0
+          radius: width / 2
+          color: Commons.Color.popups.text
+          opacity: 0.25
+          x: stackFlick.width - width - Style.space(2)
+          y: Style.space(2) + (trackHeight - height)
+            * (stackFlick.contentY / Math.max(1, stackFlick.contentHeight - stackFlick.height))
+        }
+      }
+
+      MenuRow {
         visible: menu.hasEntry
         text: menu.item && menu.item.pinned ? Commons.I18n.t("dock.removeFromDock") : Commons.I18n.t("dock.keepInDock")
         onTriggered: window.dock.setPinned(menu.item.key, !menu.item.pinned, window.shownKeys())
@@ -1047,20 +1299,48 @@ PanelWindow {
     id: row
 
     property string text: ""
+    property string iconSource: ""
     property bool checked: false
+    property bool selectable: true
+    // Extra room at the right for a scroll thumb or similar.
+    property real trailing: 0
+    // Opt-in natural width, used by folder stacks to fit their longest name.
+    // Other menus keep their fixed width, as before.
+    property bool measured: false
     signal triggered()
 
     width: parent ? parent.width : 0
+    implicitWidth: measured
+      ? rowText.implicitWidth + rowText.anchors.leftMargin + rowText.anchors.rightMargin
+      : 0
     height: visible ? Style.spacing.popupRowHeight : 0
     radius: Style.cornerRadius
-    color: rowMouse.containsMouse ? Style.hoverFill : "transparent"
+    color: rowMouse.containsMouse && row.selectable ? Style.hoverFill : "transparent"
+    opacity: selectable ? 1 : 0.6
+
+    Image {
+      id: rowIcon
+      visible: row.iconSource !== ""
+      anchors.left: parent.left
+      anchors.leftMargin: Style.spacing.controlPaddingX
+      anchors.verticalCenter: parent.verticalCenter
+      width: Math.round(Style.font.body * 1.25)
+      height: width
+      sourceSize: Qt.size(width * 2, height * 2)
+      source: row.iconSource
+      fillMode: Image.PreserveAspectFit
+      smooth: true
+      mipmap: true
+    }
 
     Text {
+      id: rowText
+
       anchors.verticalCenter: parent.verticalCenter
       anchors.left: parent.left
       anchors.right: parent.right
-      anchors.leftMargin: Style.spacing.controlPaddingX
-      anchors.rightMargin: Style.spacing.controlPaddingX + (row.checked ? Style.spacing.lg : 0)
+      anchors.leftMargin: Style.spacing.controlPaddingX + (rowIcon.visible ? rowIcon.width + Style.spacing.sm : 0)
+      anchors.rightMargin: Style.spacing.controlPaddingX + (row.checked ? Style.spacing.lg : 0) + row.trailing
       textFormat: Text.PlainText
       text: row.text
       elide: Text.ElideRight
@@ -1085,7 +1365,8 @@ PanelWindow {
       id: rowMouse
       anchors.fill: parent
       hoverEnabled: true
-      cursorShape: Qt.PointingHandCursor
+      enabled: row.selectable
+      cursorShape: row.selectable ? Qt.PointingHandCursor : Qt.ArrowCursor
       onClicked: {
         row.triggered()
         window.closeMenu()

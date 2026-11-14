@@ -233,6 +233,18 @@ Item {
     if (entry && root.appLibrary) root.appLibrary.launch(entry.id, entry.name)
   }
 
+  // A file dropped on an app icon opens in that app; dropped on a folder it
+  // moves into it, never overwriting.
+  function openDroppedFile(item, path) {
+    if (!item || !path) return
+    if (item.type === "folder") {
+      Util.execDetached(root.folderCommand() + " move " + Util.shellQuote(path) + " " + Util.shellQuote(item.path))
+      return
+    }
+    var entry = entryFor(item)
+    if (entry && root.appLibrary) root.appLibrary.launchWithFile(entry.id, path, entry.name)
+  }
+
   function activate(item, workspaceId) {
     if (!item) return
     if (item.type === "folder") { root.launch(item); return }

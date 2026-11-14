@@ -16,9 +16,11 @@ absolute. `name` and `icon` are optional; the last path component is used as
 the default name. Without an explicit icon, the dock reads the folder icon
 from Nautilus/GIO and falls back to the theme's `folder` icon. Icons refresh on
 load and periodically while the dock is open. Duplicate paths are shown once.
-The icon opens the directory using the system's default file manager. Missing
-directories stay visible, with a notification when clicked. Right-click a
-folder to see its path or remove it from the dock. Drag icons to reorder them;
+The icon opens the folder as a stack listing its contents; the first row opens
+the directory itself in the system's default file manager. Missing directories
+stay visible, with a notification when clicked, and their stack reports the
+folder as unavailable. Right-click a folder to see its path or remove it from
+the dock. Drag icons to reorder them;
 the resulting mixed app/folder order is stored in `dock.order`. Applications
 remain in `dock.pinned`; folder paths never become app IDs.
 The dock groups pinned apps, running unpinned apps, and folders in that order,
@@ -32,3 +34,8 @@ shortcut automatically using the folder's name. While a valid folder hovers,
 the dock reserves the slot it will occupy and outlines itself in the accent
 color; files, remote locations, and multiple selections show the dock in the
 error color and are not registered.
+
+Dragging a file onto an app icon opens it in that app, provided the entry
+declares a file argument in its `Exec` line. Dropping a file onto a folder
+shortcut moves it into that folder and never overwrites an existing name.
+Anything else is rejected with a notification.

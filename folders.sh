@@ -86,5 +86,63 @@ PY
     ))) | .dock.order = ((.dock.order // []) | map(select(. != (\"folder:\" + \$path))))" \
       --arg path "$2"
     ;;
-  *) fail "usage: folders.sh icon <folder-path> | add-url <file-url> | order <order-json> <pinned-json> | remove <absolute-path>" ;;
+  list)
+    (( $# == 2 )) || fail "list expects one folder path"
+    python3 - "$2" <<'PY'
+import json
+import os
+import sys
+
+try:
+    with os.scandir(sys.argv[1]) as entries:
+        items = []
+        for entry in entries:
+            if entry.name.startswith("."):
+                continue
+            try:
+                is_dir = entry.is_dir(follow_symlinks=True)
+            except OSError:
+                is_dir = False
+            items.append({"name": entry.name, "path": entry.path, "dir": is_dir})
+except OSError:
+    print("null")
+    sys.exit(0)
+
+items.sort(key=lambda item: (not item["dir"], item["name"].casefold()))
+print(json.dumps(items[:100], ensure_ascii=False))
+PY
+    ;;
+  move)
+    (( $# == 3 )) || fail "move expects a source path and a folder path"
+    status=0
+    python3 - "$2" "$3" <<'PY' || status=$?
+import os
+import shutil
+import sys
+
+source, folder = sys.argv[1], sys.argv[2]
+if not os.path.isabs(source) or not os.path.isabs(folder):
+    sys.exit(1)
+if not os.path.exists(source):
+    sys.exit(2)
+if not os.path.isdir(folder):
+    sys.exit(3)
+target = os.path.join(folder, os.path.basename(source.rstrip("/")))
+if os.path.lexists(target):
+    sys.exit(4)
+try:
+    shutil.move(source, folder)
+except OSError:
+    sys.exit(5)
+PY
+    if (( status != 0 )); then
+      if (( status == 4 )); then
+        notify-send 'Carismatic Dock' "Already in that folder: $(basename "$2")"
+      else
+        notify-send 'Carismatic Dock' "Could not move $(basename "$2")"
+      fi
+      fail "move failed"
+    fi
+    ;;
+  *) fail "usage: folders.sh icon <folder-path> | add-url <file-url> | order <order-json> <pinned-json> | remove <absolute-path> | list <absolute-path> | move <source-path> <folder-path>" ;;
 esac
