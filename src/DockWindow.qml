@@ -40,9 +40,9 @@ PanelWindow {
     return DockModel.groupItems(DockModel.orderItems(DockModel.buildItems(pinned, windows).concat(dock.folders), dock.order))
   }
   readonly property var dividerIndexes: DockModel.dividersBefore(workspaceItems)
-  readonly property int dividerMargin: 5
-  readonly property int dividerThickness: Math.max(1, Style.normalBorderWidth)
-  readonly property int dividerSpace: dividerMargin * 2 + dividerThickness
+  readonly property real dividerMargin: 5 * layoutScale
+  readonly property real dividerThickness: Math.max(1, Style.normalBorderWidth) * layoutScale
+  readonly property real dividerSpace: baseDividerSpace * layoutScale
 
   function slotStart(index) {
     var gaps = 0
@@ -159,20 +159,42 @@ PanelWindow {
   readonly property bool contentShown: shown && !tucked
 
   readonly property int gap: Style.spacing.xs
-  readonly property int dockPadding: Style.spacing.xs
+  readonly property real dockPadding: Style.spacing.xs * layoutScale
   readonly property string backgroundMode: dock && dock.shell && dock.shell.barConfig
     ? (dock.shell.barConfig.background || (dock.shell.barConfig.transparent === true ? "none" : "opaque"))
     : "opaque"
   readonly property color themeBackground: Commons.Color.bar.background
   readonly property color glassBackground: Qt.rgba(themeBackground.r, themeBackground.g,
     themeBackground.b, Math.min(themeBackground.a, 0.35))
-  readonly property int iconSize: Math.round(44 * Style.fontScale)
+  readonly property int baseIconSize: Math.round(44 * Style.fontScale)
   // Each app has a square slot with its icon in the middle, and the slots run
   // straight to the edge of the dock.
-  readonly property int iconInset: Style.spacing.md
-  readonly property int slotSize: iconSize + iconInset * 2
-  // A pinned app that is not running is drawn faded.
-  readonly property real idleOpacity: 0.7
+  // Leave room below the full 15% hover expansion for the running indicator,
+  // including when top-edge scaling grows the icon entirely downward.
+  readonly property int baseIconInset: Math.max(Style.spacing.md, Math.ceil(baseIconSize * 0.15) + Style.space(5))
+  readonly property int baseSlotSize: Math.max(baseIconSize + baseIconInset * 2, 56)
+  readonly property int baseDividerSpace: 10 + Math.max(1, Style.normalBorderWidth)
+  readonly property bool reserveDropSlot: insertIndex >= 0
+    || (folderDrop.active && folderDrop.hasLocalUrl && folderDrop.directory)
+  readonly property int layoutSlotCount: appRepeater.count + 1 + (reserveDropSlot ? 1 : 0)
+  readonly property real naturalLength: layoutSlotCount * baseSlotSize
+    + dividerIndexes.length * baseDividerSpace + Style.spacing.xs * 2
+  // Opposite anchors make this dimension the compositor's usable logical
+  // monitor length, already excluding space reserved by the system bar.
+  // It does not depend on the dock's thickness, avoiding a sizing feedback loop.
+  readonly property real availableLength: Math.max(1, (vertical ? height : width) - gap * 2)
+  readonly property real layoutScale: DockModel.fitScale(availableLength, naturalLength)
+  // Fractional metrics are intentional: rounding every slot would accumulate
+  // overflow, and a minimum pixel size would prevent very large docks fitting.
+  readonly property real iconSize: baseIconSize * layoutScale
+  readonly property real slotSize: baseSlotSize * layoutScale
+  readonly property real iconInset: (slotSize - iconSize) / 2
+  readonly property real runningIndicatorHeight: Math.max(1, Style.space(3)) * layoutScale
+  // Clear the artwork's maximum downward hover expansion in every orientation.
+  readonly property real runningIndicatorY: iconInset + iconSize
+    + Math.max(Style.space(3),
+      Math.ceil(baseIconSize * (position === "top" ? 0.15 : vertical ? 0.075 : 0)) + Style.space(2)) * layoutScale
+  readonly property real appsIconSize: 56 * layoutScale
   // Room inward of the dock for its menus: the apps button's menu has five
   // rows. A folder menu asks for ten (two actions and eight entries), growing
   // the window inward; the dock keeps its edge, since only the free side moves.
@@ -574,7 +596,7 @@ PanelWindow {
     // Hyprland provides blur only behind the painted part of this layer.
     Rectangle {
       anchors.fill: parent
-      radius: Style.cornerRadius
+      radius: Style.cornerRadius * window.layoutScale
       color: window.backgroundMode === "none" ? "transparent"
         : window.backgroundMode === "glassy" ? window.glassBackground : window.themeBackground
 
@@ -643,26 +665,21 @@ PanelWindow {
       Item {
         readonly property bool folderSlot: folderDrop.active && folderDrop.hasLocalUrl
           && folderDrop.directory
-        readonly property bool appSlot: window.insertIndex >= 0
-        readonly property bool reserved: folderSlot || appSlot
+        readonly property bool reserved: window.reserveDropSlot
 
         width: reserved ? window.slotSize : 0
         height: reserved ? window.slotSize : 0
 
-        Behavior on width {
-          NumberAnimation { duration: Style.duration(150); easing.type: Easing.OutCubic }
-        }
-        Behavior on height {
-          NumberAnimation { duration: Style.duration(150); easing.type: Easing.OutCubic }
-        }
+        // Resize atomically with layoutScale. Animating a disappearing spacer
+        // while the remaining slots expand would briefly exceed the monitor.
 
         Rectangle {
           visible: parent.folderSlot
           anchors.fill: parent
-          anchors.margins: Math.round(window.slotSize * 0.04)
-          radius: Math.round(window.slotSize * 0.22)
+          anchors.margins: window.slotSize * 0.04
+          radius: window.slotSize * 0.22
           color: "transparent"
-          border.width: Math.max(1, Style.normalBorderWidth)
+          border.width: Math.max(1, Style.normalBorderWidth) * window.layoutScale
           border.color: Commons.Color.accent
           opacity: 0.7
 
@@ -697,10 +714,10 @@ PanelWindow {
 
       Rectangle {
         anchors.fill: parent
-        anchors.margins: Math.round(window.slotSize * 0.04)
-        radius: Math.round(window.slotSize * 0.22)
+        anchors.margins: window.slotSize * 0.04
+        radius: window.slotSize * 0.22
         color: "transparent"
-        border.width: Math.max(1, Style.normalBorderWidth)
+        border.width: Math.max(1, Style.normalBorderWidth) * window.layoutScale
         border.color: Commons.Color.accent
         opacity: 0.7
 
@@ -815,9 +832,9 @@ PanelWindow {
       anchors.fill: parent
       readonly property bool folderDragging: folderDrop.active
       visible: folderDragging || window.insertIndex >= 0
-      radius: Style.cornerRadius
+      radius: Style.cornerRadius * window.layoutScale
       color: "transparent"
-      border.width: Math.max(1, Style.normalBorderWidth)
+      border.width: Math.max(1, Style.normalBorderWidth) * window.layoutScale
       border.color: folderDragging && !folderDrop.accepted ? Commons.Color.urgent : Commons.Color.accent
     }
   }
@@ -856,19 +873,17 @@ PanelWindow {
     }
 
     OpticalGlyph {
-      x: window.iconInset
-      y: window.iconInset
-      width: window.iconSize
-      height: window.iconSize
+      anchors.centerIn: parent
+      width: window.appsIconSize
+      height: window.appsIconSize
       text: "\ue900"
       fontFamily: "omarchy"
-      fontSize: window.iconSize
-      // Match the bar's optical centering, leaving breathing room around the
-      // square mark like the transparent padding in application artwork.
-      paintedSize: window.iconSize * 0.85
+      fontSize: window.baseIconSize
+      paintedSize: window.appsIconSize
       color: Commons.Color.foreground
-      scale: appsSlot.hovered ? 1.15 : 1
-      transformOrigin: window.popOrigin
+      // The larger mark stays within its slot even when hovered.
+      scale: appsSlot.hovered ? Math.min(1.15, window.slotSize / width) : 1
+      transformOrigin: Item.Center
 
       Behavior on scale { NumberAnimation { duration: Style.duration(120); easing.type: Easing.OutCubic } }
     }
@@ -1017,13 +1032,12 @@ PanelWindow {
       y: window.iconInset
       width: window.iconSize
       height: window.iconSize
-      sourceSize: Qt.size(window.iconSize * 2, window.iconSize * 2)
+      sourceSize: Qt.size(Math.max(1, window.iconSize * 2), Math.max(1, window.iconSize * 2))
       source: window.dock && appSlot.modelData ? window.dock.iconFor(appSlot.modelData) : ""
       fillMode: Image.PreserveAspectFit
       asynchronous: true
       smooth: true
       mipmap: true
-      opacity: appSlot.modelData && appSlot.modelData.type === "folder" || appSlot.windowCount > 0 ? 1 : window.idleOpacity
       transform: Translate {
         x: window.vertical ? (window.position === "left" ? appSlot.hopOffset : -appSlot.hopOffset) : appSlot.displayedShift
         y: window.vertical ? appSlot.displayedShift
@@ -1040,17 +1054,33 @@ PanelWindow {
       }
     }
 
+    // Running state stays below the artwork in every dock orientation.
+    // Follow reordering, but not the icon's hover scale or launch hop.
+    Rectangle {
+      visible: !!appSlot.modelData && appSlot.modelData.type !== "folder" && appSlot.windowCount > 0
+      x: (appSlot.width - width) / 2
+      y: window.runningIndicatorY
+      width: window.iconSize * 0.4
+      height: window.runningIndicatorHeight
+      radius: height / 2
+      color: Commons.Color.foreground
+      transform: Translate {
+        x: window.vertical ? 0 : appSlot.displayedShift
+        y: window.vertical ? appSlot.displayedShift : 0
+      }
+    }
+
     // Marks the icon a file dragged from a file manager will land on. Drawn
     // around the artwork so it reads as a target, not a selection.
     Rectangle {
       visible: appSlot.fileTarget
-      x: window.iconInset - Style.space(3)
-      y: window.iconInset - Style.space(3)
-      width: window.iconSize + Style.space(6)
-      height: window.iconSize + Style.space(6)
-      radius: Math.round(Style.cornerRadius * 0.7)
+      x: window.iconInset - Style.space(3) * window.layoutScale
+      y: window.iconInset - Style.space(3) * window.layoutScale
+      width: window.iconSize + Style.space(6) * window.layoutScale
+      height: window.iconSize + Style.space(6) * window.layoutScale
+      radius: Style.cornerRadius * 0.7 * window.layoutScale
       color: "transparent"
-      border.width: Math.max(2, Style.normalBorderWidth)
+      border.width: Math.max(2, Style.normalBorderWidth) * window.layoutScale
       border.color: Commons.Color.accent
       opacity: 0.9
     }
@@ -1061,11 +1091,11 @@ PanelWindow {
       visible: appSlot.remoteWorkspaces.length > 0
       x: window.iconInset + window.iconSize - width / 2
       y: window.iconInset - height / 2
-      width: Math.max(Style.space(18), remoteText.implicitWidth + Style.spacing.xs * 2)
-      height: Style.space(18)
+      width: Math.max(Style.space(18), remoteText.implicitWidth + Style.spacing.xs * 2) * window.layoutScale
+      height: Style.space(18) * window.layoutScale
       radius: height / 2
       color: Commons.Color.popups.background
-      border.width: Math.max(1, Style.normalBorderWidth)
+      border.width: Math.max(1, Style.normalBorderWidth) * window.layoutScale
       border.color: Commons.Color.accent
       transform: Translate {
         x: window.vertical ? 0 : appSlot.displayedShift
@@ -1080,6 +1110,7 @@ PanelWindow {
         color: Commons.Color.popups.text
         font.family: Style.font.family
         font.pixelSize: Style.font.bodySmall
+        scale: window.layoutScale
       }
     }
 
@@ -1088,7 +1119,7 @@ PanelWindow {
       id: launchHop
       onRunningChanged: if (!running) appSlot.hopOffset = 0
 
-      NumberAnimation { target: appSlot; property: "hopOffset"; from: 0; to: Style.space(14); duration: Style.duration(400); easing.type: Easing.InOutSine }
+      NumberAnimation { target: appSlot; property: "hopOffset"; from: 0; to: Style.space(14) * window.layoutScale; duration: Style.duration(400); easing.type: Easing.InOutSine }
       NumberAnimation { target: appSlot; property: "hopOffset"; to: 0; duration: Style.duration(600); easing.type: Easing.OutCubic }
     }
   }

@@ -13,6 +13,12 @@ function isVertical(position) {
   return normalized === "left" || normalized === "right"
 }
 
+// No lower scale limit: even very crowded docks must fit without scrolling.
+function fitScale(availableLength, naturalLength) {
+  if (!(availableLength > 0) || !(naturalLength > 0)) return 1
+  return Math.min(1, availableLength / naturalLength)
+}
+
 function normalizeId(value) {
   var id = String(value || "").trim()
   if (id.slice(-8) === ".desktop") id = id.slice(0, -8)
@@ -282,6 +288,7 @@ if (typeof module !== "undefined") {
   module.exports = {
     normalizePosition: normalizePosition,
     isVertical: isVertical,
+    fitScale: fitScale,
     normalizeId: normalizeId,
     pinnedIds: pinnedIds,
     folderItems: folderItems,

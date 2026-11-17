@@ -73,7 +73,7 @@ function fixture(position = 'bottom', scale = 1, groups = [2, 2, 2]) {
 }
 
 for (const position of ['top', 'bottom', 'left', 'right']) {
-  for (const scale of [0.75, 1, 1.5]) {
+  for (const scale of [0.05, 0.125, 0.75, 1, 1.5]) {
     for (const groups of [[2, 2, 2], [0, 2, 1], [2, 0, 0], [0, 0, 2], [0, 0, 0]]) {
       test(`${position}, scale ${scale}, groups ${groups}: full slots and excluded regions`, () => {
         const f = fixture(position, scale, groups);
