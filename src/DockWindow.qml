@@ -846,9 +846,6 @@ PanelWindow {
   component AppsSlot: Slot {
     id: appsSlot
 
-    // Follow the dock surface when the shell theme changes.
-    readonly property bool darkTheme: window.themeBackground.hslLightness < 0.5
-
     mouse.onClicked: function(event) {
       if (event.button === Qt.RightButton) {
         window.openSettingsMenu(appsSlot)
@@ -858,16 +855,18 @@ PanelWindow {
       if (window.dock) window.dock.openApps()
     }
 
-    Image {
+    OpticalGlyph {
       x: window.iconInset
       y: window.iconInset
       width: window.iconSize
       height: window.iconSize
-      source: Qt.resolvedUrl(appsSlot.darkTheme ? "assets/menu-dark.svg" : "assets/menu-light.svg")
-      sourceSize: Qt.size(window.iconSize * 2, window.iconSize * 2)
-      fillMode: Image.PreserveAspectFit
-      smooth: true
-      mipmap: true
+      text: "\ue900"
+      fontFamily: "omarchy"
+      fontSize: window.iconSize
+      // Match the bar's optical centering, leaving breathing room around the
+      // square mark like the transparent padding in application artwork.
+      paintedSize: window.iconSize * 0.85
+      color: Commons.Color.foreground
       scale: appsSlot.hovered ? 1.15 : 1
       transformOrigin: window.popOrigin
 
