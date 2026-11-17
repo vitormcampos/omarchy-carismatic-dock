@@ -57,6 +57,22 @@ function folderItems(dockConfig) {
   return items
 }
 
+// Session-owned shortcuts frame the user's folders without changing config.
+function folderShortcuts(folders, homePath) {
+  var home = String(homePath || "").replace(/\/+$/, "") || "/"
+  var shortcuts = (folders || []).filter(function(item) {
+    return !item.fixed && item.path !== home && item.path !== "trash:///"
+      && item.key !== "folder:home" && item.key !== "folder:trash"
+  })
+  return [{
+    type: "folder", key: "folder:home", path: home, name: "Home",
+    icon: "user-home", fixed: true, builtin: "home", pinned: true, windows: []
+  }].concat(shortcuts, [{
+    type: "folder", key: "folder:trash", path: "trash:///", name: "Trash",
+    icon: "user-trash", fixed: true, builtin: "trash", pinned: true, windows: []
+  }])
+}
+
 function configuredOrder(dockConfig) {
   return dockConfig && Array.isArray(dockConfig.order)
     ? dockConfig.order.filter(function(key) { return typeof key === "string" }) : []
@@ -206,18 +222,25 @@ function itemGroup(item) {
 
 function groupItems(items) {
   var groups = [[], [], []]
-  for (var i = 0; i < (items || []).length; i++) groups[itemGroup(items[i])].push(items[i])
-  return groups[0].concat(groups[1], groups[2])
+  var home = [], trash = []
+  for (var i = 0; i < (items || []).length; i++) {
+    var item = items[i]
+    if (item.builtin === "home") home.push(item)
+    else if (item.builtin === "trash") trash.push(item)
+    else groups[itemGroup(item)].push(item)
+  }
+  return groups[0].concat(groups[1], home, groups[2], trash)
 }
 
 // Classify the destination before moving anything. Only an existing pinned
 // app slot expresses pinning intent; folders and pinned apps stay in their group.
 function moveTarget(items, fromIndex, toIndex) {
-  if (!items || !items[fromIndex] || !items[toIndex]) return null
+  if (!items || !items[fromIndex] || !items[toIndex] || items[fromIndex].fixed) return null
   var group = itemGroup(items[fromIndex])
   var pin = group === 1 && itemGroup(items[toIndex]) === 0
   var first = fromIndex, last = fromIndex
   for (var i = 0; i < items.length; i++) {
+    if (!items[i] || items[i].fixed) continue
     var candidate = itemGroup(items[i])
     if (candidate === group || (group === 1 && candidate === 0)) {
       first = Math.min(first, i)
@@ -292,6 +315,7 @@ if (typeof module !== "undefined") {
     normalizeId: normalizeId,
     pinnedIds: pinnedIds,
     folderItems: folderItems,
+    folderShortcuts: folderShortcuts,
     configuredOrder: configuredOrder,
     isDockWindow: isDockWindow,
     isMinimizedWorkspace: isMinimizedWorkspace,

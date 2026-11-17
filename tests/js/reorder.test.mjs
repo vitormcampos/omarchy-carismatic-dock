@@ -39,6 +39,7 @@ function fixture(pins = ['A'], order = ['A', 'B', 'C', 'folder:/one', 'folder:/t
     model.buildItems(context.pinnedKeys.filter(key => ['A', 'B', 'C'].includes(key)),
       ['A', 'B', 'C'].map(key => ({ key, hasEntry: true, workspaceId: 1 }))).concat(folders), context.order));
   context.shownKeys = () => items().map(item => item.key);
+  context.itemFor = key => items().find(item => item.key === key) || null;
   const move = (key, to) => {
     const keys = context.shownKeys();
     context.moveItem(keys.indexOf(key), to, keys);

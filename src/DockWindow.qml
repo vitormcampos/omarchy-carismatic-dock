@@ -195,10 +195,10 @@ PanelWindow {
     + Math.max(Style.space(3),
       Math.ceil(baseIconSize * (position === "top" ? 0.15 : vertical ? 0.075 : 0)) + Style.space(2)) * layoutScale
   readonly property real appsIconSize: 56 * layoutScale
-  // Room inward of the dock for its menus: the apps button's menu has five
-  // rows. A folder menu asks for ten (two actions and eight entries), growing
-  // the window inward; the dock keeps its edge, since only the free side moves.
-  readonly property int popupRows: stackItem !== null ? 10 : 5
+  // Keep enough room for the largest menu (two actions and eight entries).
+  // Resizing the layer surface on every folder open/close can flash the dock.
+  // The input mask still includes only the dock and the currently visible menu.
+  readonly property int popupRows: 10
   readonly property int popupRoom: Style.spacing.popupRowHeight * popupRows + Style.spacing.sm * 2 + Style.normalBorderWidth * 2 + gap * 2
   // Icons pop away from the screen edge.
   readonly property int popOrigin: position === "top" ? Item.Top
@@ -286,7 +286,8 @@ PanelWindow {
     // their full rectangle, excluding the gaps occupied by dividers.
     for (var i = 0; i < window.workspaceItems.length; i++) {
       var start = window.slotStart(i)
-      if (along >= start && along < start + window.slotSize) return window.workspaceItems[i]
+      if (along >= start && along < start + window.slotSize)
+        return window.workspaceItems[i].builtin === "trash" ? null : window.workspaceItems[i]
     }
     return null
   }
@@ -317,7 +318,7 @@ PanelWindow {
   }
 
   function openMenu(item, slot) {
-    if (item && item.type === "folder") {
+    if (item && item.type === "folder" && item.builtin !== "trash") {
       window.openStack(item, slot)
       return
     }
@@ -389,7 +390,7 @@ PanelWindow {
   // to persist shortcuts, so a missing folder is reported instead of looking
   // empty.
   function openStack(item, slot) {
-    if (!item || item.type !== "folder" || !window.dock) return
+    if (!item || item.type !== "folder" || item.builtin === "trash" || !window.dock) return
     window.menuItem = item
     window.pickerKey = ""
     window.settingsMenu = false
@@ -960,6 +961,7 @@ PanelWindow {
 
     mouse.onPositionChanged: function(event) {
       if (!(appSlot.mouse.pressedButtons & Qt.LeftButton)) return
+      if (appSlot.modelData && appSlot.modelData.fixed) return
       var point = appSlot.bodyPoint(event)
       var delta = window.vertical ? point.y - appSlot.pressPoint.y : point.x - appSlot.pressPoint.x
       // A press that wanders is a drag in the making, not a click.
@@ -1133,8 +1135,23 @@ PanelWindow {
     readonly property bool folder: !!item && item.type === "folder"
     readonly property bool running: !!item && item.windows.length > 0
     readonly property bool stack: !!window.stackItem
+    property bool resizeReady: false
+
+    // Reset before opening, then animate ordinary menus from a compact height.
+    // Folder stacks retain their initial size and expand as content arrives.
+    function prepareResize() {
+      resizeReady = false
+      if (visible) Qt.callLater(armResize)
+    }
+    function armResize() {
+      resizeReady = visible
+    }
+    onVisibleChanged: prepareResize()
+    onItemChanged: prepareResize()
+    onStackChanged: prepareResize()
 
     visible: window.contentShown && (!!item || window.settingsMenu || !!pickerItem || stack)
+    clip: true
     // The most any popup can take without leaving the surface.
     readonly property int room: window.vertical
       ? window.popupRoom - window.gap * 2 : window.width - window.gap * 2
@@ -1143,13 +1160,24 @@ PanelWindow {
       : pickerItem
         ? Math.min(Style.space(340), room)
         : Math.max(Style.space(140), menuColumn.implicitWidth) + padding * 2
-    height: menuColumn.implicitHeight + padding * 2
+    readonly property real targetHeight: menuColumn.implicitHeight + padding * 2
+    height: stack || resizeReady ? targetHeight
+      : Math.min(targetHeight, Style.spacing.popupRowHeight * 0.6 + padding * 2)
     x: window.popupX(window.menuSlot, menu)
     y: window.popupY(window.menuSlot, menu)
     radius: Style.cornerRadius
     color: Commons.Color.popups.background
     borderSpec: Border.surfaceSpec("popups", "border", Commons.Color.popups.border, Style.normalBorderWidth)
     padding: Style.spacing.sm
+
+    Behavior on width {
+      enabled: menu.resizeReady && menu.visible
+      NumberAnimation { duration: Style.duration(menu.stack ? 180 : 240); easing.type: Easing.OutCubic }
+    }
+    Behavior on height {
+      enabled: menu.resizeReady && menu.visible
+      NumberAnimation { duration: Style.duration(menu.stack ? 180 : 240); easing.type: Easing.OutCubic }
+    }
 
     Column {
       id: menuColumn
@@ -1216,6 +1244,11 @@ PanelWindow {
         id: stackFlick
 
         visible: menu.stack && window.stackEntries.length > 0
+        opacity: window.stackLoading ? 0 : 1
+        Behavior on opacity {
+          enabled: menu.visible && menu.stack
+          NumberAnimation { duration: Style.duration(120); easing.type: Easing.OutCubic }
+        }
         width: parent.width
         implicitWidth: stackRows.implicitWidth
         // Eight entries plus the two actions stay inside the surface: any more
@@ -1264,7 +1297,7 @@ PanelWindow {
       }
 
       MenuRow {
-        visible: menu.folder
+        visible: menu.folder && !menu.item.fixed
         measured: true
         text: Commons.I18n.t("dock.removeFromDock")
         onTriggered: window.dock.removeFolder(menu.item)

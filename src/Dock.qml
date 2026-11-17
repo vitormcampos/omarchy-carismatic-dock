@@ -56,7 +56,7 @@ Item {
     pendingOrder = null
   }
 
-  readonly property var folders: DockModel.folderItems(dockConfig)
+  readonly property var folders: DockModel.folderShortcuts(DockModel.folderItems(dockConfig), Quickshell.env("HOME"))
   property var folderIcons: ({})
   property var pendingFolderIcons: []
   property string folderIconPath: ""
@@ -215,6 +215,10 @@ Item {
   }
 
   function launch(item) {
+    if (item && item.builtin === "trash") {
+      Util.execDetached("gio open trash:///")
+      return
+    }
     if (item && item.type === "folder") {
       var path = Util.shellQuote(item.path)
       Util.execDetached("if [ -d " + path + " ]; then xdg-open " + path
@@ -236,7 +240,7 @@ Item {
   // A file dropped on an app icon opens in that app; dropped on a folder it
   // moves into it, never overwriting.
   function openDroppedFile(item, path) {
-    if (!item || !path) return
+    if (!item || !path || item.builtin === "trash") return
     if (item.type === "folder") {
       Util.execDetached(root.folderCommand() + " move " + Util.shellQuote(path) + " " + Util.shellQuote(item.path))
       return
@@ -348,7 +352,7 @@ Item {
   }
 
   function removeFolder(item) {
-    if (!item || item.type !== "folder") return
+    if (!item || item.type !== "folder" || item.fixed) return
     root.pendingOrder = root.order.filter(function(key) { return key !== item.key })
     Util.execDetached(root.folderCommand() + " remove " + Util.shellQuote(item.path))
   }
@@ -356,7 +360,7 @@ Item {
   function moveItem(fromIndex, toIndex, visibleKeys) {
     var keys = visibleKeys || root.shownKeys()
     var items = keys.map(function(key) {
-      return { key: key, type: key.indexOf("folder:") === 0 ? "folder" : "app", pinned: root.isPinned(key) }
+      return root.itemFor(key)
     })
     var target = DockModel.moveTarget(items, fromIndex, toIndex)
     if (target && fromIndex !== target.index) root.placeAt(keys[fromIndex], target.index, keys, target.pin)
