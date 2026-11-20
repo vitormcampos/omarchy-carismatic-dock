@@ -8,6 +8,15 @@ source omarchy-shell-config
 helper="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/folders.py"
 
 case "${1:-}" in
+  always-visible)
+    (( $# == 2 )) || fail "always-visible expects on or off"
+    case "$2" in
+      on) enabled=true ;;
+      off) enabled=false ;;
+      *) fail "always-visible expects on or off" ;;
+    esac
+    commit "$NORMALIZE | .dock.alwaysVisible = \$enabled" --argjson enabled "$enabled"
+    ;;
   icon)
     (( $# == 2 )) || fail "icon expects one folder path"
     python3 "$helper" icon "$2"
@@ -54,5 +63,5 @@ case "${1:-}" in
       fail "move failed"
     fi
     ;;
-  *) fail "usage: folders.sh icon <folder-path> | add-url <file-url> | order <order-json> <pinned-json> | remove <absolute-path> | list <absolute-path> | move <source-path> <folder-path>" ;;
+  *) fail "usage: folders.sh always-visible <on|off> | icon <folder-path> | add-url <file-url> | order <order-json> <pinned-json> | remove <absolute-path> | list <absolute-path> | move <source-path> <folder-path>" ;;
 esac

@@ -10,9 +10,11 @@ const source = fs.readFileSync(new URL('../../src/DockWindow.qml', import.meta.u
 
 // Evaluate production bindings, not a second implementation of the sizing math.
 function layout({ position = 'bottom', width = 1920, height = 1040, count = 10,
-  fontScale = 1, drop = '', dividers = [3, 6] } = {}) {
+  fontScale = 1, drop = '', dividers = [3, 6], dock = { autohide: false },
+  workspaceId = 1, fullscreenMode = 0, smartObstructed = false } = {}) {
   const context = {
     position, width, height, vertical: model.isVertical(position), DockModel: model,
+    dock, workspaceId, fullscreenMode, smartObstructed,
     appRepeater: { count },
     dividerIndexes: dividers.filter(index => index < count),
     insertIndex: drop === 'app' ? 0 : -1,
@@ -31,6 +33,7 @@ function layout({ position = 'bottom', width = 1920, height = 1040, count = 10,
     'layoutScale', 'dockPadding', 'iconSize', 'slotSize', 'iconInset',
     'dividerMargin', 'dividerThickness', 'dividerSpace',
     'runningIndicatorHeight', 'runningIndicatorY', 'appsIconSize',
+    'shown', 'alwaysVisible', 'autohide',
   ]) {
     const binding = source.match(new RegExp(
       '^  readonly property \\w+ ' + name + ': (.*(?:\\n    [^\\n]*)*)', 'm',
@@ -62,6 +65,22 @@ test('fitScale shrinks without a minimum and never enlarges the dock', () => {
   assert.equal(model.fitScale(10, 100000), 0.0001);
   assert.equal(model.fitScale(0, 1000), 1);
   assert.equal(model.fitScale(1000, 0), 1);
+});
+
+test('always-visible reserves only the dock depth and releases it in fullscreen', () => {
+  const reservation = source.match(/^  exclusiveZone: (.*\n    [^\n]*)/m)[1];
+  for (const position of ['bottom', 'right']) {
+    for (const [workspaceId, fullscreenMode, reserves] of [[1, 0, true], [1, 1, true], [1, 2, false], [-1, 0, false]]) {
+      const dock = { alwaysVisible: true, autohide: true };
+      const l = layout({ position, workspaceId, fullscreenMode, dock, smartObstructed: true });
+      const depth = l.vertical ? l.body.width : l.body.height;
+      assert.equal(l.autohide, false);
+      assert.equal(vm.runInContext(reservation, l), reserves ? Math.ceil(depth + l.gap) : 0);
+      dock.alwaysVisible = false;
+      assert.equal(l.autohide, true);
+      assert.equal(vm.runInContext(reservation, l), 0);
+    }
+  }
 });
 
 for (const position of ['top', 'bottom', 'left', 'right']) {

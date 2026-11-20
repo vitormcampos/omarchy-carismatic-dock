@@ -100,7 +100,22 @@ def test_invalid_url_notifies_without_changing_config(shell):
     assert "Only local folders can be added" in (home / "notifications").read_text()
 
 
-@pytest.mark.parametrize("args", [[], ["list"], ["move", "/one"], ["order", "[]", '[1]']])
+def test_always_visible_preserves_other_settings(shell):
+    run, config, _ = shell
+    original = json.loads(config.read_text())
+    original["dock"]["autohide"] = True
+    config.write_text(json.dumps(original))
+
+    for setting, expected in [("on", True), ("off", False)]:
+        result = run("always-visible", setting)
+        assert result.returncode == 0, result.stderr
+        actual = json.loads(config.read_text())
+        assert actual["dock"].pop("alwaysVisible") is expected
+        assert actual == original
+
+
+@pytest.mark.parametrize("args", [[], ["list"], ["move", "/one"], ["order", "[]", '[1]'],
+                                 ["always-visible"], ["always-visible", "true"]])
 def test_invalid_arguments_do_not_change_config(shell, args):
     run, config, _ = shell
     before = config.read_bytes()

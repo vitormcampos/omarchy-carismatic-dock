@@ -19,6 +19,8 @@ PanelWindow {
 
   property var dock: null
 
+  Commons.Translations { id: strings; directory: Qt.resolvedUrl("i18n") }
+
   readonly property string position: dock ? dock.position : "bottom"
   readonly property bool vertical: dock ? dock.vertical : false
   readonly property var monitor: Hyprland.monitorFor(screen)
@@ -148,9 +150,11 @@ PanelWindow {
     return false
   }
 
-  // An overlapping window (or a tiled/scrolling workspace with tiles) tucks
-  // the dock until the pointer reaches its edge. Manual auto-hide still wins.
-  readonly property bool autohide: !!dock && (dock.autohide || fullscreenMode === 1 || smartObstructed)
+  readonly property bool alwaysVisible: !!dock && dock.alwaysVisible
+  // Outside always-visible mode, an obstruction or the auto-hide preference
+  // tucks the dock until the pointer reaches its edge.
+  readonly property bool autohide: !!dock && !alwaysVisible
+    && (dock.autohide || fullscreenMode === 1 || smartObstructed)
   property bool revealed: false
   readonly property bool menuOpen: menuItem !== null || settingsMenu || pickerKey !== ""
     || stackItem !== null
@@ -233,6 +237,11 @@ PanelWindow {
   function origin() {
     var reserved = monitor && monitor.lastIpcObject && monitor.lastIpcObject.reserved ? monitor.lastIpcObject.reserved : [0, 0, 0, 0]
     var left = reserved[0] || 0, top = reserved[1] || 0, right = reserved[2] || 0, bottom = reserved[3] || 0
+    // The monitor reports our own reservation too. The dock sits inside it.
+    if (window.position === "left") left = Math.max(0, left - window.exclusiveZone)
+    if (window.position === "top") top = Math.max(0, top - window.exclusiveZone)
+    if (window.position === "right") right = Math.max(0, right - window.exclusiveZone)
+    if (window.position === "bottom") bottom = Math.max(0, bottom - window.exclusiveZone)
     var x = window.position === "right" ? screen.width - right - window.width : left
     var y = window.position === "bottom" ? screen.height - bottom - window.height : top
     return Qt.point(x, y)
@@ -480,10 +489,11 @@ PanelWindow {
   WlrLayershell.namespace: "omarchy-dock"
   WlrLayershell.layer: WlrLayer.Top
   WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-  // Kept clear of the bar's reserved edge, without reserving one of its own:
-  // the dock overlays tiled windows instead of resizing their work area.
+  // Reserve the strip occupied by the icons. The rest of the surface is
+  // available for popups and should not affect the workspace layout.
   exclusionMode: ExclusionMode.Normal
-  exclusiveZone: 0
+  exclusiveZone: window.alwaysVisible && window.shown
+    ? Math.ceil(window.gap + window.slotSize + window.dockPadding * 2) : 0
 
   anchors {
     top: window.position !== "bottom"
@@ -510,7 +520,7 @@ PanelWindow {
   Timer {
     interval: 500
     repeat: true
-    running: window.shown && window.hasFloatingWindows
+    running: window.shown && !window.alwaysVisible && window.hasFloatingWindows
     onTriggered: Hyprland.refreshToplevels()
   }
 
@@ -1199,10 +1209,17 @@ PanelWindow {
       }
 
       MenuRow {
-        visible: window.settingsMenu
+        visible: window.settingsMenu && !window.alwaysVisible
         text: Commons.I18n.t("dock.autoHide")
         checked: !!window.dock && window.dock.autohide
         onTriggered: Util.execDetached("omarchy-dock autohide " + (window.dock && window.dock.autohide ? "off" : "on"))
+      }
+
+      MenuRow {
+        visible: window.settingsMenu
+        text: strings.t("dock.alwaysVisible")
+        checked: window.alwaysVisible
+        onTriggered: window.dock.setAlwaysVisible(!window.alwaysVisible)
       }
 
       MenuRow {

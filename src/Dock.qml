@@ -36,6 +36,7 @@ Item {
   readonly property string position: DockModel.normalizePosition(dockConfig.position)
   readonly property bool vertical: DockModel.isVertical(position)
   readonly property bool autohide: dockConfig.autohide === true
+  readonly property bool alwaysVisible: dockConfig.alwaysVisible === true
 
   function windowAddress(appWindow) {
     var address = String(appWindow && appWindow.address || "")
@@ -343,6 +344,10 @@ Item {
 
   function folderCommand() {
     return Util.shellQuote(root.folderScriptPath())
+  }
+
+  function setAlwaysVisible(enabled) {
+    Util.execDetached(root.folderCommand() + " always-visible " + (enabled ? "on" : "off"))
   }
 
   function saveOrder(pins) {

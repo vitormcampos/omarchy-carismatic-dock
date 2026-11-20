@@ -1,3 +1,11 @@
+## Always visible
+
+Right-click the Apps button and select **Always visible · Reserve space**.
+Tiled and maximized windows use the remaining space on each monitor, and
+floating windows keep their size. The dock hides and releases its space
+during true fullscreen. Turning the option off restores the previous
+auto-hide preference. The option is off by default.
+
 # Folder shortcuts
 
 Add entries to `dock.folders` in `~/.config/omarchy/shell.json`. For example:
