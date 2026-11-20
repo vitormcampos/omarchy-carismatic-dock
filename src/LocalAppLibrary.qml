@@ -103,6 +103,18 @@ Item {
     Util.execDetached("uwsm-app -- gtk-launch " + Util.shellQuote(id + ".desktop"))
   }
 
+  function quickActions(entry) {
+    return Array.from(entry && entry.actions || []).filter(function(action) {
+      return action && action.id && action.name && action.command && action.command.length > 0
+    })
+  }
+
+  function launchAction(entry, action) {
+    // UWSM resolves the action through the desktop entry, including its
+    // working directory, field codes and terminal preference.
+    Quickshell.execDetached(["uwsm-app", "--", entry.id + ".desktop:" + action.id])
+  }
+
   function remove(desktopId, name) {
     var id = String(desktopId || "")
     if (!id) return

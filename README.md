@@ -6,6 +6,12 @@ floating windows keep their size. The dock hides and releases its space
 during true fullscreen. Turning the option off restores the previous
 auto-hide preference. The option is off by default.
 
+## App quick actions
+
+Right-click a pinned or running app to see the launch actions declared in its
+`.desktop` entry, such as opening a private browser window. Longer lists scroll.
+The dock shows actions with an executable command.
+
 # Folder shortcuts
 
 Add entries to `dock.folders` in `~/.config/omarchy/shell.json`. For example:

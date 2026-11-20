@@ -8,16 +8,21 @@ import { execFileSync } from 'node:child_process';
 const source = fs.readFileSync(new URL('../../src/LocalAppLibrary.qml', import.meta.url), 'utf8');
 
 function library(themedIcons = {}) {
+  const launches = [];
   const context = vm.createContext({
     iconIndex: Object.create(null),
     pendingIconIndex: Object.create(null),
-    Quickshell: { iconPath: name => themedIcons[name] || '' },
+    Quickshell: {
+      iconPath: name => themedIcons[name] || '',
+      execDetached: args => launches.push(Array.from(args)),
+    },
     Util: { fileUrl: file => 'file://' + file },
     iconIndexDebounce: { restart() { context.refreshes++; } },
     refreshes: 0,
+    launches,
   });
   context.root = context;
-  for (const name of ['iconSource', 'indexIconLine', 'iconIndexScanCommand', 'refreshIcons']) {
+  for (const name of ['iconSource', 'indexIconLine', 'iconIndexScanCommand', 'refreshIcons', 'quickActions', 'launchAction']) {
     const start = source.indexOf('  function ' + name + '(');
     const end = source.indexOf('\n  }', start);
     assert.ok(start >= 0 && end > start);
@@ -25,6 +30,21 @@ function library(themedIcons = {}) {
   }
   return context;
 }
+
+test('quick actions preserve desktop order and launch by desktop ID and action ID', () => {
+  const lib = library();
+  const newWindow = { id: 'new-window', name: 'New window', command: ['browser'] };
+  const privateWindow = { id: 'new-private-window', name: 'Private window', command: ['browser', '--incognito'] };
+  const entry = {
+    id: 'browser',
+    actions: [newWindow, { id: 'dbus-only', name: 'D-Bus only', command: [] }, privateWindow],
+  };
+
+  assert.deepEqual(Array.from(lib.quickActions(entry)), [newWindow, privateWindow]);
+  assert.lengthOf(lib.quickActions(null), 0);
+  lib.launchAction(entry, privateWindow);
+  assert.deepEqual(lib.launches, [['uwsm-app', '--', 'browser.desktop:new-private-window']]);
+});
 
 test('new icons resolve after an index swap even when the Qt cache stays empty', () => {
   const lib = library({ 'application-x-executable': 'image://generic' });

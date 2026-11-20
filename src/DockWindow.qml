@@ -1141,7 +1141,12 @@ PanelWindow {
 
     readonly property var item: window.menuItem
     readonly property var pickerItem: window.pickerKey ? window.workspaceItemsByKey[window.pickerKey] || null : null
-    readonly property bool hasEntry: !!item && !!window.dock && !!window.dock.entryFor(item)
+    readonly property var entry: item && window.dock ? window.dock.entryFor(item) : null
+    readonly property bool hasEntry: !!entry
+    readonly property var actions: entry ? window.dock.appLibrary.quickActions(entry) : []
+    readonly property bool hasNewWindowAction: actions.some(function(action) {
+      return action.id === "new-window"
+    })
     readonly property bool folder: !!item && item.type === "folder"
     readonly property bool running: !!item && item.windows.length > 0
     readonly property bool stack: !!window.stackItem
@@ -1169,7 +1174,9 @@ PanelWindow {
       ? Math.max(Style.space(160), Math.min(menuColumn.implicitWidth + padding * 2, Math.min(Style.space(340), room)))
       : pickerItem
         ? Math.min(Style.space(340), room)
-        : Math.max(Style.space(140), menuColumn.implicitWidth) + padding * 2
+        : actions.length > 0
+          ? Math.min(Style.space(340), room, Math.max(Style.space(140), menuColumn.implicitWidth) + padding * 2)
+          : Math.max(Style.space(140), menuColumn.implicitWidth) + padding * 2
     readonly property real targetHeight: menuColumn.implicitHeight + padding * 2
     height: stack || resizeReady ? targetHeight
       : Math.min(targetHeight, Style.spacing.popupRowHeight * 0.6 + padding * 2)
@@ -1223,9 +1230,56 @@ PanelWindow {
       }
 
       MenuRow {
-        visible: menu.hasEntry && menu.running
+        visible: menu.hasEntry && menu.running && !menu.hasNewWindowAction
         text: Commons.I18n.t("dock.newWindow")
         onTriggered: window.dock.launch(menu.item)
+      }
+
+      Flickable {
+        id: actionList
+
+        visible: menu.actions.length > 0
+        width: parent.width
+        implicitWidth: actionRows.implicitWidth
+        height: visible ? Math.min(contentHeight, Style.spacing.popupRowHeight * 5) : 0
+        contentHeight: actionRows.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        onVisibleChanged: if (visible) contentY = 0
+
+        Column {
+          id: actionRows
+          width: actionList.width
+
+          Repeater {
+            model: menu.actions
+
+            delegate: MenuRow {
+              required property var modelData
+
+              measured: true
+              text: modelData.name
+              iconSource: modelData.icon ? window.dock.appLibrary.iconSource(modelData.icon) : ""
+              trailing: actionThumb.visible ? Style.space(6) : 0
+              onTriggered: window.dock.appLibrary.launchAction(menu.entry, modelData)
+            }
+          }
+        }
+
+        Rectangle {
+          id: actionThumb
+
+          readonly property real trackHeight: Math.max(0, actionList.height - Style.space(4))
+          visible: actionList.visible && actionList.contentHeight > actionList.height
+          width: Math.max(2, Style.normalBorderWidth)
+          height: visible ? Math.max(Style.space(16), trackHeight * actionList.visibleArea.heightRatio) : 0
+          radius: width / 2
+          color: Commons.Color.popups.text
+          opacity: 0.25
+          x: actionList.width - width - Style.space(2)
+          y: actionList.contentY + Style.space(2) + Math.max(0, trackHeight - height)
+            * actionList.contentY / Math.max(1, actionList.contentHeight - actionList.height)
+        }
       }
 
       MenuRow {
