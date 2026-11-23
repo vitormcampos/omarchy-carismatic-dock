@@ -112,23 +112,6 @@ function effectiveWorkspaceId(window) {
   return window.minimized ? (window.minimizedFrom || -1) : window.workspaceId
 }
 
-function remoteWorkspaceIds(windows, currentWorkspaceId) {
-  var ids = []
-  for (var i = 0; i < (windows || []).length; i++) {
-    var id = effectiveWorkspaceId(windows[i])
-    if (id >= 1 && id !== currentWorkspaceId && ids.indexOf(id) < 0) ids.push(id)
-  }
-  return ids.sort(function(a, b) { return a - b })
-}
-
-// Omarchy gives each monitor a block of ten Hyprland workspace IDs, but its
-// bar shows slots 1–9 and 0. Keep the internal IDs for navigation only.
-function workspaceLabel(id) {
-  if (!(id >= 1)) return ""
-  var slot = (id - 1) % 10 + 1
-  return slot === 10 ? "0" : String(slot)
-}
-
 // Does a Hyprland client occupy the dock's visible rectangle? Ignore a tiny
 // edge-only contact so window borders do not make the dock flicker.
 function overlapsDock(client, dock) {
@@ -321,8 +304,6 @@ if (typeof module !== "undefined") {
     isMinimizedWorkspace: isMinimizedWorkspace,
     minimizedFromTags: minimizedFromTags,
     effectiveWorkspaceId: effectiveWorkspaceId,
-    remoteWorkspaceIds: remoteWorkspaceIds,
-    workspaceLabel: workspaceLabel,
     overlapsDock: overlapsDock,
     claimingEntryId: claimingEntryId,
     buildItems: buildItems,

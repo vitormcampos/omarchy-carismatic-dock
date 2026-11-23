@@ -174,7 +174,7 @@ test('Trash context menu never treats its URI as a local folder stack', () => {
   const context = { openStack: item => calls.push(item), closeStack: () => {}, dock: {} };
   context.window = context;
   vm.createContext(context);
-  load(windowSource, ['openMenu', 'openStack'], context);
+  load(windowSource, ['openMenu', 'openStack', 'closeWindowLists'], context);
   const trash = folders().at(-1);
   context.openStack(trash, {});
   assert.equal(calls.length, 0);

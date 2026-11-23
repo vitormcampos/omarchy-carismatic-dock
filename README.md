@@ -6,6 +6,38 @@ floating windows keep their size. The dock hides and releases its space
 during true fullscreen. Turning the option off restores the previous
 auto-hide preference. The option is off by default.
 
+## Running apps
+
+The same apps appear on every monitor. A short line under an app means it has
+an open window, regardless of workspace. Workspace numbers are shown only
+in the window picker, not on app icons.
+
+A corner badge counts new Omarchy notifications that the dock can match to
+an app. It shows `9+` above nine and clears when you focus the app, without
+changing Omarchy's notification history. Counts are shared across monitors
+and reset when the dock reloads. Transient notifications that Omarchy does
+not save are not counted.
+
+## Workspace management
+
+Click a multi-window app or right-click a running app and choose **Windows…**
+to see its windows grouped by workspace, with the current workspace first.
+Click a row to focus or restore the window. **Move…** lets you send a specific
+non-minimized window to an existing workspace on any monitor without following it.
+
+Right-click **Apps** and choose **Workspace overview** to open Mission Control
+on that monitor. Click a workspace card to switch to it, or click a window
+card to focus or restore it. Drag a non-minimized window to a workspace card
+to move it without following. The arrow keys select a window, **Enter** focuses
+it, and **Esc** closes the overview.
+
+Mission Control centers the current workspace's windows and requests a
+one-shot preview for up to six of them. Windows from other workspaces stay
+in a compact bottom row. Cards without a preview use app icons; no captures
+are saved to disk. To add a dock button, set `"showWorkspaceButton":
+true` inside `dock` in `~/.config/omarchy/shell.json`. You can also toggle the
+overview on the focused monitor with `omarchy-shell omarchy.dock workspaces`.
+
 ## App quick actions
 
 Right-click a pinned or running app to see the launch actions declared in its

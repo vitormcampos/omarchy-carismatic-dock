@@ -29,7 +29,7 @@ function layout({ position = 'bottom', width = 1920, height = 1040, count = 10,
   vm.createContext(context);
   for (const name of [
     'gap', 'baseIconSize', 'baseIconInset', 'baseSlotSize', 'baseDividerSpace',
-    'reserveDropSlot', 'layoutSlotCount', 'naturalLength', 'availableLength',
+    'reserveDropSlot', 'showWorkspaceButton', 'layoutSlotCount', 'naturalLength', 'availableLength',
     'layoutScale', 'dockPadding', 'iconSize', 'slotSize', 'iconInset',
     'dividerMargin', 'dividerThickness', 'dividerSpace',
     'runningIndicatorHeight', 'runningIndicatorY', 'appsIconSize',
@@ -58,6 +58,40 @@ function layout({ position = 'bottom', width = 1920, height = 1040, count = 10,
   context.workspaceItemModel = { count };
   return context;
 }
+
+test('running mark applies equally to windows on the current and other workspaces', () => {
+  const binding = source.match(/Rectangle \{\s*visible: ([^\n]+)\n\s*x: \(appSlot.width - width\) \/ 2\n\s*y: window.runningIndicatorY/);
+  assert.ok(binding, 'running mark visibility binding');
+  for (const workspaceId of [1, 13]) {
+    for (const [type, windows, expected] of [
+      ['app', [{ workspaceId: 1 }], true],
+      ['app', [{ workspaceId: 13 }], true],
+      ['app', [], false],
+      ['folder', [], false],
+    ]) {
+      assert.equal(vm.runInNewContext(binding[1], {
+        appSlot: { modelData: { type, windows }, windowCount: windows.length },
+        window: { workspaceId },
+      }), expected);
+    }
+  }
+});
+
+test('optional workspace button fits without shifting app drop targets', () => {
+  for (const position of ['top', 'bottom', 'left', 'right']) {
+    const plain = layout({ position, count: 12, width: 800, height: 600, drop: 'folder' });
+    const extra = layout({ position, count: 12, width: 800, height: 600, drop: 'folder',
+      dock: { showWorkspaceButton: true } });
+    assert.equal(extra.layoutSlotCount, plain.layoutSlotCount + 1);
+    assert.ok((extra.vertical ? extra.body.height : extra.body.width) <= extra.availableLength + 1e-8);
+    for (let i = 0; i < 12; i++) {
+      const along = extra.slotStart(i) + extra.slotSize / 2;
+      const across = extra.dockPadding + extra.slotSize / 2;
+      assert.strictEqual(extra.slotItemAt(extra.vertical ? across : along, extra.vertical ? along : across),
+        extra.workspaceItems[i]);
+    }
+  }
+});
 
 test('fitScale shrinks without a minimum and never enlarges the dock', () => {
   assert.equal(model.fitScale(1920, 1000), 1);

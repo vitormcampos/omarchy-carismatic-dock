@@ -2,8 +2,10 @@ import QtQuick
 import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
+import Quickshell.Wayland
 import qs.Commons
 import "DockModel.js" as DockModel
+import "WorkspaceModel.js" as WorkspaceModel
 
 // An app and folder dock for regular workspaces.
 Item {
@@ -37,6 +39,7 @@ Item {
   readonly property bool vertical: DockModel.isVertical(position)
   readonly property bool autohide: dockConfig.autohide === true
   readonly property bool alwaysVisible: dockConfig.alwaysVisible === true
+  readonly property bool showWorkspaceButton: dockConfig.showWorkspaceButton === true
 
   function windowAddress(appWindow) {
     var address = String(appWindow && appWindow.address || "")
@@ -44,6 +47,17 @@ Item {
   }
 
   LocalAppLibrary { id: localAppLibrary }
+
+  readonly property var notificationCounts: notificationBadges.counts
+  NotificationBadges {
+    id: notificationBadges
+    focusedAppId: {
+      var top = ToplevelManager.activeToplevel
+      while (top && top.parent) top = top.parent
+      var entry = top && top.appId ? root.entryForAppId(top.appId) : null
+      return entry ? entry.id : ""
+    }
+  }
 
   // Configured order contains desktop ids and folder:<absolute path> keys.
   // Session changes show immediately while the config write catches up.
@@ -125,20 +139,16 @@ Item {
     return id ? DesktopEntries.byId(id) : null
   }
 
-  // A pinned app that is not installed has nothing to launch, so it is left
-  // out until it is. Windows are matched to the desktop entry that claims them.
-  readonly property var items: {
+  // Share the compositor snapshot with the workspace overview, including
+  // ordinary windows that do not have a matching desktop entry.
+  readonly property var appWindows: {
     var appsRevision = DesktopEntries.applications.values.length
-    var pinned = (root.pendingPins || DockModel.pinnedIds(dockConfig, defaultDockConfig)).filter(function(id) {
-      return !!DesktopEntries.byId(id)
-    })
-
     var windows = []
     var toplevels = Hyprland.toplevels.values
     for (var i = 0; i < toplevels.length; i++) {
       var toplevel = toplevels[i].wayland
-      if (!toplevel || !toplevel.appId || toplevel.parent) continue
-      var entry = root.entryForAppId(toplevel.appId)
+      if (!toplevel || toplevel.parent) continue
+      var entry = toplevel.appId ? root.entryForAppId(toplevel.appId) : null
       var workspace = toplevels[i].workspace
       windows.push({
         key: entry ? entry.id : toplevel.appId,
@@ -148,11 +158,30 @@ Item {
         minimizedFrom: DockModel.minimizedFromTags(toplevels[i].lastIpcObject ? toplevels[i].lastIpcObject.tags : []),
         address: toplevels[i].address,
         title: String((toplevels[i].lastIpcObject && toplevels[i].lastIpcObject.title)
-          || toplevel.title || (entry && entry.name) || toplevel.appId),
+          || toplevel.title || (entry && entry.name) || toplevel.appId || ""),
         toplevel: toplevel
       })
     }
 
+    return windows
+  }
+  readonly property var workspaceWindows: appWindows.filter(function(window) {
+    return window.minimized || WorkspaceModel.regularId(window.workspaceId)
+  })
+  readonly property var workspaceMonitors: Hyprland.monitors.values.map(function(monitor) {
+    return { name: monitor.name, activeId: monitor.activeWorkspace ? monitor.activeWorkspace.id : -1 }
+  })
+  readonly property var workspaceCatalog: WorkspaceModel.catalog(Hyprland.workspaces.values.map(function(space) {
+    return { id: space.id, monitor: space.monitor ? space.monitor.name : "" }
+  }), workspaceMonitors, workspaceWindows)
+
+  // Uninstalled pins and windows without desktop entries stay out of the strip.
+  readonly property var items: {
+    var appsRevision = DesktopEntries.applications.values.length
+    var pinned = (root.pendingPins || DockModel.pinnedIds(dockConfig, defaultDockConfig)).filter(function(id) {
+      return !!DesktopEntries.byId(id)
+    })
+    var windows = root.appWindows.filter(function(window) { return !!window.key })
     return DockModel.groupItems(DockModel.orderItems(DockModel.buildItems(pinned, windows).concat(root.folders), root.order))
   }
 
@@ -273,6 +302,32 @@ Item {
     else root.bringForward(selected, targetWorkspaceId)
   }
 
+  function focusManagedWindow(selected, currentId) {
+    if (!selected) return
+    var target = DockModel.effectiveWorkspaceId(selected)
+    root.bringForward(selected, WorkspaceModel.regularId(target) ? target : currentId)
+  }
+
+  function managedWindow(address) {
+    if (!address) return null
+    return root.workspaceWindows.find(function(window) {
+      return WorkspaceModel.address(window.address) === address
+    }) || null
+  }
+
+  function moveManagedWindow(address, targetId, targetMonitor) {
+    var target = root.workspaceCatalog.byId[targetId]
+    if (!target || !target.present || target.monitor !== targetMonitor) return
+    var expression = WorkspaceModel.moveExpression(root.managedWindow(address), targetId)
+    if (expression) Quickshell.execDetached(["hyprctl", "dispatch", expression])
+  }
+
+  function focusManagedWorkspace(id) {
+    var target = root.workspaceCatalog.byId[id]
+    if (!WorkspaceModel.regularId(id) || !target || !target.present) return
+    Quickshell.execDetached(["hyprctl", "dispatch", 'hl.dsp.focus({ workspace = "' + id + '" })'])
+  }
+
   function minimize(appWindow, workspaceId) {
     var address = root.windowAddress(appWindow)
     if (!address || !(workspaceId >= 1)) return
@@ -284,7 +339,7 @@ Item {
   // A window the dock brings forward lands on top of the others, focused; a
   // minimized one first comes back to the workspace in front of the user.
   function bringForward(window, workspaceId) {
-    var address = root.windowAddress(window)
+    var address = WorkspaceModel.address(window.address)
     if (!address) {
       window.toplevel.activate()
       return
@@ -314,7 +369,18 @@ Item {
   }
 
   function openApps() {
+    missionControl.close()
     appGrid.open()
+  }
+
+  function openMissionControl(screen) {
+    if (appGrid.opened) appGrid.close()
+    missionControl.open(screen)
+  }
+
+  function managedWindowIcon(window) {
+    var entry = window && window.key ? DesktopEntries.byId(window.key) : null
+    return root.appLibrary.iconSource(entry && entry.icon ? entry.icon : "application-x-executable")
   }
 
   readonly property var pinnedKeys: root.pendingPins || DockModel.pinnedIds(root.dockConfig, root.defaultDockConfig)
@@ -464,6 +530,9 @@ Item {
       else if (name === "fullscreen") {
         Hyprland.refreshWorkspaces()
         Hyprland.refreshToplevels()
+      } else if (name === "moveworkspacev2" || name === "changeworkspaceid") {
+        Hyprland.refreshWorkspaces()
+        Hyprland.refreshToplevels()
       } else if (name === "movewindow" || name === "movewindowv2" || name === "tagwindow") {
         // Origin tags and special-workspace membership must arrive together
         // for minimized windows to show on their original workspace.
@@ -477,7 +546,14 @@ Item {
 
     // The layout commands call this after changing a workspace's mode.
     function refresh(): void { root.refresh() }
-    function apps(): void { appGrid.toggle() }
+    function apps(): void {
+      missionControl.close()
+      appGrid.toggle()
+    }
+    function workspaces(): void {
+      if (missionControl.shown) missionControl.close()
+      else root.openMissionControl(null)
+    }
   }
 
   // An app dragged out of the app grid: the grid holds the pointer and
@@ -526,6 +602,11 @@ Item {
   AppGrid {
     id: appGrid
     appLibrary: root.appLibrary
+    dock: root
+  }
+
+  MissionControl {
+    id: missionControl
     dock: root
   }
 }

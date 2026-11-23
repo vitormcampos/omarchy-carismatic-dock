@@ -1,3 +1,24 @@
 {
-  "dock.alwaysVisible": "Always visible · Reserve space"
+  "dock.alwaysVisible": "Always visible · Reserve space",
+  "dock.newNotifications": { "one": "%1 new notification", "other": "%1 new notifications" },
+  "dock.notificationOverflow": "%1+",
+  "dock.workspaceOverview": "Workspace overview",
+  "dock.workspaceWindows": "Windows…",
+  "dock.workspaceNumber": "Workspace %1",
+  "dock.workspaceOnMonitor": "%1 · %2",
+  "dock.workspaceCurrent": "%1 · Current",
+  "dock.workspaceActive": "%1 · Active",
+  "dock.workspaceUnknownMonitor": "Unknown monitor",
+  "dock.workspaceUnknown": "Unknown workspace",
+  "dock.workspaceMinimized": "%1 · Minimized",
+  "dock.workspaceUntitled": "Untitled window",
+  "dock.workspaceMove": "Move…",
+  "dock.workspaceBack": "Back to windows",
+  "dock.workspaceNoDestinations": "No other available workspace",
+  "dock.workspaceNothing": "No windows to show",
+  "dock.missionClose": "Close · Esc",
+  "dock.missionHint": "Click a window to focus it, or drag it to a workspace above.",
+  "dock.missionEmpty": "No open windows.",
+  "dock.missionCurrentEmpty": "No windows on this workspace.",
+  "dock.missionOtherWindows": "Other workspaces"
 }

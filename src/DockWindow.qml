@@ -7,6 +7,7 @@ import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
 import "DockModel.js" as DockModel
+import "WorkspaceModel.js" as WorkspaceModel
 
 // One screen's dock. It stays mapped on regular workspaces and hides behind
 // fullscreen windows. While hidden the mask is empty and clicks fall through.
@@ -180,7 +181,8 @@ PanelWindow {
   readonly property int baseDividerSpace: 10 + Math.max(1, Style.normalBorderWidth)
   readonly property bool reserveDropSlot: insertIndex >= 0
     || (folderDrop.active && folderDrop.hasLocalUrl && folderDrop.directory)
-  readonly property int layoutSlotCount: appRepeater.count + 1 + (reserveDropSlot ? 1 : 0)
+  readonly property bool showWorkspaceButton: !!dock && dock.showWorkspaceButton === true
+  readonly property int layoutSlotCount: appRepeater.count + 1 + (reserveDropSlot ? 1 : 0) + (showWorkspaceButton ? 1 : 0)
   readonly property real naturalLength: layoutSlotCount * baseSlotSize
     + dividerIndexes.length * baseDividerSpace + Style.spacing.xs * 2
   // Opposite anchors make this dimension the compositor's usable logical
@@ -302,6 +304,7 @@ PanelWindow {
   }
   property var menuItem: null
   property string pickerKey: ""
+  property string moveAddress: ""
   property Item menuSlot: null
   // The apps button's menu: where the dock sits and whether it hides.
   property bool settingsMenu: false
@@ -331,7 +334,7 @@ PanelWindow {
       window.openStack(item, slot)
       return
     }
-    window.pickerKey = ""
+    window.closeWindowLists()
     window.settingsMenu = false
     window.closeStack()
     window.menuItem = item
@@ -340,7 +343,7 @@ PanelWindow {
 
   function openSettingsMenu(slot) {
     window.menuItem = null
-    window.pickerKey = ""
+    window.closeWindowLists()
     window.settingsMenu = true
     window.closeStack()
     window.menuSlot = slot
@@ -350,19 +353,36 @@ PanelWindow {
     if (!item) return
     window.menuItem = null
     window.settingsMenu = false
+    window.closeWindowLists()
     window.pickerKey = item.key
     window.closeStack()
     window.menuSlot = slot
   }
 
-  function pickerWindowLabel(appWindow, windows) {
-    var workspace = DockModel.effectiveWorkspaceId(appWindow)
-    var title = String(appWindow.title || appWindow.key || "")
-    var sameTitle = (windows || []).filter(function(other) {
-      return DockModel.effectiveWorkspaceId(other) === workspace && other.title === appWindow.title
-    })
-    var duplicate = sameTitle.length > 1 ? " · " + (sameTitle.indexOf(appWindow) + 1) : ""
-    return "[" + DockModel.workspaceLabel(workspace) + "] " + title + duplicate
+  function openWorkspaceOverview() {
+    window.closeMenu()
+    if (window.dock) window.dock.openMissionControl(window.screen)
+  }
+
+  function closeWindowLists() {
+    window.pickerKey = ""
+    window.moveAddress = ""
+  }
+
+  function workspaceRowLabel(row, showMonitor) {
+    if (row.kind === "monitor") return row.monitor || strings.t("dock.workspaceUnknownMonitor")
+    if (row.kind === "unknown") return strings.t("dock.workspaceUnknown")
+    if (row.kind === "window") {
+      var title = row.title || strings.t("dock.workspaceUntitled")
+      return row.window.minimized ? strings.t("dock.workspaceMinimized").arg(title) : title
+    }
+    var space = row.space
+    var number = Commons.I18n.formatNumber(space.fullId ? space.id : WorkspaceModel.slot(space.id))
+    var label = strings.t("dock.workspaceNumber").arg(space.fullId ? "#" + number : number)
+    if (showMonitor && space.monitor) label = strings.t("dock.workspaceOnMonitor").arg(label).arg(space.monitor)
+    if (row.current) label = strings.t("dock.workspaceCurrent").arg(label)
+    else if (space.active) label = strings.t("dock.workspaceActive").arg(label)
+    return label
   }
 
   function settleShifts() {
@@ -388,7 +408,7 @@ PanelWindow {
 
   function closeMenu() {
     window.menuItem = null
-    window.pickerKey = ""
+    window.closeWindowLists()
     window.settingsMenu = false
     window.menuSlot = null
     window.closeStack()
@@ -401,7 +421,7 @@ PanelWindow {
   function openStack(item, slot) {
     if (!item || item.type !== "folder" || item.builtin === "trash" || !window.dock) return
     window.menuItem = item
-    window.pickerKey = ""
+    window.closeWindowLists()
     window.settingsMenu = false
     window.stackItem = item
     window.menuSlot = slot
@@ -632,7 +652,7 @@ PanelWindow {
       anchors.centerIn: parent
       // The extra column holds the drop spacer, which only takes a slot while
       // a drop target is active, so the row never wraps.
-      columns: window.vertical ? 1 : appRepeater.count + 2
+      columns: window.vertical ? 1 : appRepeater.count + 2 + (window.showWorkspaceButton ? 1 : 0)
 
       AppsSlot {}
 
@@ -701,6 +721,38 @@ PanelWindow {
             font.family: Style.font.menuFamily
             font.pixelSize: Math.round(window.iconSize * 0.45)
           }
+        }
+      }
+      Slot {
+        id: overviewSlot
+        visible: window.showWorkspaceButton
+        mouse.onClicked: function(event) {
+          if (event.button === Qt.LeftButton) window.openWorkspaceOverview()
+        }
+
+        Grid {
+          anchors.centerIn: parent
+          columns: 2
+          spacing: window.iconSize * 0.07
+          Repeater {
+            model: 4
+            Rectangle {
+              width: window.iconSize * 0.22
+              height: width
+              radius: width * 0.2
+              color: Commons.Color.foreground
+            }
+          }
+        }
+
+        PanelToolTip {
+          id: overviewTip
+          visible: overviewSlot.hovered && window.contentShown && !window.menuOpen
+          text: strings.t("dock.workspaceOverview")
+          width: Math.min(implicitWidth, window.vertical
+            ? window.popupRoom - window.gap * 2 : window.width - window.gap * 2)
+          x: window.popupX(overviewSlot, overviewTip) - overviewSlot.mapToItem(window.contentItem, 0, 0).x
+          y: window.popupY(overviewSlot, overviewTip) - overviewSlot.mapToItem(window.contentItem, 0, 0).y
         }
       }
     }
@@ -931,10 +983,8 @@ PanelWindow {
     property point pressPoint
     property bool dragged: false
     readonly property int windowCount: modelData ? modelData.windows.length : 0
-    readonly property var remoteWorkspaces: DockModel.remoteWorkspaceIds(modelData ? modelData.windows : [], window.workspaceId)
-    readonly property string remoteLabel: remoteWorkspaces.length > 1
-      ? DockModel.workspaceLabel(remoteWorkspaces[0]) + "+"
-      : DockModel.workspaceLabel(remoteWorkspaces[0])
+    readonly property int notificationCount: window.dock && modelData && modelData.type === "app"
+      ? (window.dock.notificationCounts[key] || 0) : 0
 
     // Slots between where the dragged app was and where it would land step
     // aside to make room; the dragged one follows the pointer. An app dragged
@@ -1022,7 +1072,9 @@ PanelWindow {
     PanelToolTip {
       visible: appSlot.hovered && window.contentShown && !window.menuOpen
         && window.insertIndex < 0 && appSlot.label !== ""
-      text: appSlot.label
+      text: !appSlot.notificationCount ? appSlot.label : appSlot.label + "\n"
+        + strings.tn("dock.newNotifications", appSlot.notificationCount)
+          .arg(Commons.I18n.formatNumber(appSlot.notificationCount))
       width: Math.min(implicitWidth, window.vertical
         ? window.popupRoom - window.gap * 2 : window.width - window.gap * 2)
       x: window.position === "left" ? appSlot.width + window.gap
@@ -1066,7 +1118,7 @@ PanelWindow {
       }
     }
 
-    // Running state stays below the artwork in every dock orientation.
+    // Running state is independent of workspace and stays below the artwork.
     // Follow reordering, but not the icon's hover scale or launch hop.
     Rectangle {
       visible: !!appSlot.modelData && appSlot.modelData.type !== "folder" && appSlot.windowCount > 0
@@ -1097,13 +1149,11 @@ PanelWindow {
       opacity: 0.9
     }
 
-    // A workspace number identifies running windows outside this screen's
-    // current workspace. A trailing + means there are more remote workspaces.
     Rectangle {
-      visible: appSlot.remoteWorkspaces.length > 0
+      visible: appSlot.notificationCount > 0
       x: window.iconInset + window.iconSize - width / 2
       y: window.iconInset - height / 2
-      width: Math.max(Style.space(18), remoteText.implicitWidth + Style.spacing.xs * 2) * window.layoutScale
+      width: Math.max(Style.space(18), badgeText.implicitWidth + Style.spacing.xs * 2) * window.layoutScale
       height: Style.space(18) * window.layoutScale
       radius: height / 2
       color: Commons.Color.popups.background
@@ -1115,10 +1165,11 @@ PanelWindow {
       }
 
       Text {
-        id: remoteText
+        id: badgeText
         anchors.centerIn: parent
         textFormat: Text.PlainText
-        text: appSlot.remoteLabel
+        text: appSlot.notificationCount > 9 ? strings.t("dock.notificationOverflow").arg(Commons.I18n.formatNumber(9))
+          : Commons.I18n.formatNumber(appSlot.notificationCount)
         color: Commons.Color.popups.text
         font.family: Style.font.family
         font.pixelSize: Style.font.bodySmall
@@ -1149,6 +1200,18 @@ PanelWindow {
     })
     readonly property bool folder: !!item && item.type === "folder"
     readonly property bool running: !!item && item.windows.length > 0
+    readonly property bool windowList: !!pickerItem
+    readonly property var moveSource: window.moveAddress && window.dock
+      ? window.dock.managedWindow(window.moveAddress) : null
+    readonly property var windowRows: {
+      if (!windowList || !window.dock) return []
+      var dock = window.dock
+      var monitorName = window.monitor ? window.monitor.name : ""
+      if (window.moveAddress)
+        return WorkspaceModel.destinations(dock.workspaceCatalog, dock.workspaceMonitors, monitorName, window.workspaceId, moveSource)
+      return WorkspaceModel.rows(pickerItem.windows,
+        dock.workspaceCatalog, dock.workspaceMonitors, monitorName, window.workspaceId)
+    }
     readonly property bool stack: !!window.stackItem
     property bool resizeReady: false
 
@@ -1165,15 +1228,15 @@ PanelWindow {
     onItemChanged: prepareResize()
     onStackChanged: prepareResize()
 
-    visible: window.contentShown && (!!item || window.settingsMenu || !!pickerItem || stack)
+    visible: window.contentShown && (!!item || window.settingsMenu || windowList || stack)
     clip: true
     // The most any popup can take without leaving the surface.
     readonly property int room: window.vertical
       ? window.popupRoom - window.gap * 2 : window.width - window.gap * 2
     width: stack
       ? Math.max(Style.space(160), Math.min(menuColumn.implicitWidth + padding * 2, Math.min(Style.space(340), room)))
-      : pickerItem
-        ? Math.min(Style.space(340), room)
+      : windowList
+        ? Math.min(Style.space(380), room)
         : actions.length > 0
           ? Math.min(Style.space(340), room, Math.max(Style.space(140), menuColumn.implicitWidth) + padding * 2)
           : Math.max(Style.space(140), menuColumn.implicitWidth) + padding * 2
@@ -1227,6 +1290,20 @@ PanelWindow {
         text: strings.t("dock.alwaysVisible")
         checked: window.alwaysVisible
         onTriggered: window.dock.setAlwaysVisible(!window.alwaysVisible)
+      }
+
+      MenuRow {
+        visible: window.settingsMenu
+        text: strings.t("dock.workspaceOverview")
+        closeOnTrigger: false
+        onTriggered: window.openWorkspaceOverview()
+      }
+
+      MenuRow {
+        visible: menu.running && !menu.folder
+        text: strings.t("dock.workspaceWindows")
+        closeOnTrigger: false
+        onTriggered: window.openWindowPicker(menu.item, window.menuSlot)
       }
 
       MenuRow {
@@ -1386,27 +1463,56 @@ PanelWindow {
         onTriggered: window.dock.quit(menu.item)
       }
 
+      MenuRow {
+        visible: menu.windowList && window.moveAddress !== ""
+        text: strings.t("dock.workspaceBack")
+        closeOnTrigger: false
+        onTriggered: window.moveAddress = ""
+      }
+
+      MenuRow {
+        visible: menu.windowList && !menu.windowRows.length
+        selectable: false
+        text: window.moveAddress ? strings.t("dock.workspaceNoDestinations") : strings.t("dock.workspaceNothing")
+      }
+
       Flickable {
-        visible: !!menu.pickerItem
+        id: windowListScroll
+        visible: menu.windowList && !!menu.windowRows.length
         width: parent.width
-        height: visible ? Math.min(pickerRows.implicitHeight, Style.spacing.popupRowHeight * 5) : 0
+        height: visible ? Math.min(pickerRows.implicitHeight, Style.spacing.popupRowHeight * 8) : 0
         contentHeight: pickerRows.implicitHeight
         clip: true
         boundsBehavior: Flickable.StopAtBounds
+        onVisibleChanged: if (visible) contentY = 0
+        Connections {
+          target: window
+          function onMoveAddressChanged() { windowListScroll.contentY = 0 }
+          function onPickerKeyChanged() { windowListScroll.contentY = 0 }
+        }
 
         Column {
           id: pickerRows
           width: parent.width
 
           Repeater {
-            model: menu.pickerItem ? menu.pickerItem.windows : []
+            model: menu.windowRows
 
             delegate: MenuRow {
               required property var modelData
-
-              text: window.pickerWindowLabel(modelData, menu.pickerItem ? menu.pickerItem.windows : [])
-              checked: !!modelData.toplevel && modelData.toplevel.activated && !modelData.minimized
-              onTriggered: window.dock.activateWindow(modelData, window.workspaceId)
+              readonly property bool windowRow: modelData.kind === "window"
+              readonly property bool destination: modelData.kind === "destination"
+              text: window.workspaceRowLabel(modelData, !window.moveAddress)
+              heading: !windowRow && !destination
+              indent: windowRow ? Style.spacing.md : 0
+              selectable: windowRow || destination
+              checked: windowRow && !!modelData.window.toplevel && modelData.window.toplevel.activated && !modelData.window.minimized
+              actionText: windowRow && WorkspaceModel.canMove(modelData.window) ? strings.t("dock.workspaceMove") : ""
+              onSecondaryTriggered: window.moveAddress = WorkspaceModel.address(modelData.window.address)
+              onTriggered: {
+                if (windowRow) window.dock.focusManagedWindow(modelData.window, window.workspaceId)
+                else if (destination) window.dock.moveManagedWindow(window.moveAddress, modelData.space.id, modelData.space.monitor)
+              }
             }
           }
         }
@@ -1421,12 +1527,18 @@ PanelWindow {
     property string iconSource: ""
     property bool checked: false
     property bool selectable: true
+    property bool closeOnTrigger: true
+    property bool heading: false
+    property real indent: 0
+    property string actionText: ""
+    readonly property real actionSpace: actionText !== "" ? rowAction.width : 0
     // Extra room at the right for a scroll thumb or similar.
     property real trailing: 0
     // Opt-in natural width, used by folder stacks to fit their longest name.
     // Other menus keep their fixed width, as before.
     property bool measured: false
     signal triggered()
+    signal secondaryTriggered()
 
     width: parent ? parent.width : 0
     implicitWidth: measured
@@ -1458,13 +1570,14 @@ PanelWindow {
       anchors.verticalCenter: parent.verticalCenter
       anchors.left: parent.left
       anchors.right: parent.right
-      anchors.leftMargin: Style.spacing.controlPaddingX + (rowIcon.visible ? rowIcon.width + Style.spacing.sm : 0)
-      anchors.rightMargin: Style.spacing.controlPaddingX + (row.checked ? Style.spacing.lg : 0) + row.trailing
+      anchors.leftMargin: Style.spacing.controlPaddingX + row.indent + (rowIcon.visible ? rowIcon.width + Style.spacing.sm : 0)
+      anchors.rightMargin: Style.spacing.controlPaddingX + (row.checked ? Style.spacing.lg : 0) + row.trailing + row.actionSpace
       textFormat: Text.PlainText
       text: row.text
       elide: Text.ElideRight
       color: Commons.Color.popups.text
       font.family: Style.font.family
+      font.bold: row.heading
       font.pixelSize: Style.font.body
     }
 
@@ -1472,7 +1585,7 @@ PanelWindow {
       visible: row.checked
       anchors.verticalCenter: parent.verticalCenter
       anchors.right: parent.right
-      anchors.rightMargin: Style.spacing.controlPaddingX
+      anchors.rightMargin: Style.spacing.controlPaddingX + row.actionSpace
       textFormat: Text.PlainText
       text: "✓"
       color: Commons.Color.accent
@@ -1488,7 +1601,41 @@ PanelWindow {
       cursorShape: row.selectable ? Qt.PointingHandCursor : Qt.ArrowCursor
       onClicked: {
         row.triggered()
-        window.closeMenu()
+        if (row.closeOnTrigger) window.closeMenu()
+      }
+    }
+
+    Rectangle {
+      id: rowAction
+      visible: row.actionText !== ""
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      width: Math.min(parent.width / 3, actionLabel.implicitWidth + Style.spacing.controlPaddingX * 2)
+      height: parent.height
+      radius: Style.cornerRadius
+      color: actionMouse.containsMouse ? Style.hoverFill : "transparent"
+
+      Text {
+        id: actionLabel
+        anchors.fill: parent
+        anchors.leftMargin: Style.spacing.xs
+        anchors.rightMargin: Style.spacing.xs
+        verticalAlignment: Text.AlignVCenter
+        horizontalAlignment: Text.AlignHCenter
+        textFormat: Text.PlainText
+        text: row.actionText
+        elide: Text.ElideRight
+        font.family: Style.font.family
+        font.pixelSize: Style.font.bodySmall
+        color: Commons.Color.popups.text
+      }
+
+      MouseArea {
+        id: actionMouse
+        anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onClicked: row.secondaryTriggered()
       }
     }
   }
