@@ -34,9 +34,10 @@ it, and **Esc** closes the overview.
 Mission Control centers the current workspace's windows and requests a
 one-shot preview for up to six of them. Windows from other workspaces stay
 in a compact bottom row. Cards without a preview use app icons; no captures
-are saved to disk. To add a dock button, set `"showWorkspaceButton":
-true` inside `dock` in `~/.config/omarchy/shell.json`. You can also toggle the
-overview on the focused monitor with `omarchy-shell omarchy.dock workspaces`.
+are saved to disk. The Mission Control button sits right after **Apps**.
+To hide it, set `"showWorkspaceButton": false` inside `dock` in
+`~/.config/omarchy/shell.json`. You can also toggle the overview on the focused
+monitor with `omarchy-shell omarchy.dock workspaces`.
 
 ## App quick actions
 

@@ -39,7 +39,7 @@ Item {
   readonly property bool vertical: DockModel.isVertical(position)
   readonly property bool autohide: dockConfig.autohide === true
   readonly property bool alwaysVisible: dockConfig.alwaysVisible === true
-  readonly property bool showWorkspaceButton: dockConfig.showWorkspaceButton === true
+  readonly property bool showWorkspaceButton: dockConfig.showWorkspaceButton !== false
 
   function windowAddress(appWindow) {
     var address = String(appWindow && appWindow.address || "")

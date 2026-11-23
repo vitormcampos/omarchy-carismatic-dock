@@ -51,7 +51,7 @@ PanelWindow {
     var gaps = 0
     for (var i = 0; i < dividerIndexes.length; i++)
       if (dividerIndexes[i] <= index) gaps++
-    return dockPadding + (index + 1) * slotSize + gaps * dividerSpace
+    return dockPadding + (index + 1 + (window.showWorkspaceButton ? 1 : 0)) * slotSize + gaps * dividerSpace
   }
 
   function draggedIndex(index, offset) {
@@ -286,8 +286,8 @@ PanelWindow {
     return count
   }
 
-  // The dock item under a point in body coordinates, or null. The apps button
-  // owns the first slot and is never a drop target.
+  // The dock item under a point in body coordinates, or null. The Apps and
+  // Mission Control buttons are not file drop targets.
   function slotItemAt(x, y) {
     var along = window.vertical ? y : x
     var across = window.vertical ? x : y
@@ -655,6 +655,7 @@ PanelWindow {
       columns: window.vertical ? 1 : appRepeater.count + 2 + (window.showWorkspaceButton ? 1 : 0)
 
       AppsSlot {}
+      MissionControlSlot { visible: window.showWorkspaceButton }
 
       Repeater {
         id: appRepeater
@@ -721,38 +722,6 @@ PanelWindow {
             font.family: Style.font.menuFamily
             font.pixelSize: Math.round(window.iconSize * 0.45)
           }
-        }
-      }
-      Slot {
-        id: overviewSlot
-        visible: window.showWorkspaceButton
-        mouse.onClicked: function(event) {
-          if (event.button === Qt.LeftButton) window.openWorkspaceOverview()
-        }
-
-        Grid {
-          anchors.centerIn: parent
-          columns: 2
-          spacing: window.iconSize * 0.07
-          Repeater {
-            model: 4
-            Rectangle {
-              width: window.iconSize * 0.22
-              height: width
-              radius: width * 0.2
-              color: Commons.Color.foreground
-            }
-          }
-        }
-
-        PanelToolTip {
-          id: overviewTip
-          visible: overviewSlot.hovered && window.contentShown && !window.menuOpen
-          text: strings.t("dock.workspaceOverview")
-          width: Math.min(implicitWidth, window.vertical
-            ? window.popupRoom - window.gap * 2 : window.width - window.gap * 2)
-          x: window.popupX(overviewSlot, overviewTip) - overviewSlot.mapToItem(window.contentItem, 0, 0).x
-          y: window.popupY(overviewSlot, overviewTip) - overviewSlot.mapToItem(window.contentItem, 0, 0).y
         }
       }
     }
@@ -920,6 +889,51 @@ PanelWindow {
       hoverEnabled: true
       cursorShape: Qt.PointingHandCursor
       acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
+    }
+  }
+
+  component MissionControlSlot: Slot {
+    id: overviewSlot
+    mouse.onClicked: function(event) {
+      if (event.button === Qt.LeftButton) window.openWorkspaceOverview()
+    }
+
+    Row {
+      id: overviewGlyph
+      readonly property real glyphSize: window.iconSize * 1.25
+      anchors.centerIn: parent
+      spacing: glyphSize * 0.07
+      scale: overviewSlot.hovered ? 1.15 : 1
+      Behavior on scale { NumberAnimation { duration: Style.duration(120); easing.type: Easing.OutCubic } }
+
+      Rectangle {
+        width: overviewGlyph.glyphSize * 0.34
+        height: overviewGlyph.glyphSize * 0.48
+        radius: overviewGlyph.glyphSize * 0.055
+        color: Commons.Color.foreground
+      }
+      Column {
+        spacing: overviewGlyph.spacing
+        Repeater {
+          model: 2
+          Rectangle {
+            width: overviewGlyph.glyphSize * 0.24
+            height: overviewGlyph.glyphSize * 0.205
+            radius: overviewGlyph.glyphSize * 0.055
+            color: Commons.Color.foreground
+          }
+        }
+      }
+    }
+
+    PanelToolTip {
+      id: overviewTip
+      visible: overviewSlot.hovered && window.contentShown && !window.menuOpen
+      text: "Mission Control"
+      width: Math.min(implicitWidth, window.vertical
+        ? window.popupRoom - window.gap * 2 : window.width - window.gap * 2)
+      x: window.popupX(overviewSlot, overviewTip) - overviewSlot.mapToItem(window.contentItem, 0, 0).x
+      y: window.popupY(overviewSlot, overviewTip) - overviewSlot.mapToItem(window.contentItem, 0, 0).y
     }
   }
 

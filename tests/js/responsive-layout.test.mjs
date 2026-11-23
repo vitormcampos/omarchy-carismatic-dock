@@ -77,13 +77,18 @@ test('running mark applies equally to windows on the current and other workspace
   }
 });
 
-test('optional workspace button fits without shifting app drop targets', () => {
+test('Mission Control sits after Apps and does not become an app drop target', () => {
+  assert.match(source, /AppsSlot \{\}\s+MissionControlSlot \{[^}]+\}\s+Repeater \{/);
   for (const position of ['top', 'bottom', 'left', 'right']) {
     const plain = layout({ position, count: 12, width: 800, height: 600, drop: 'folder' });
     const extra = layout({ position, count: 12, width: 800, height: 600, drop: 'folder',
       dock: { showWorkspaceButton: true } });
     assert.equal(extra.layoutSlotCount, plain.layoutSlotCount + 1);
     assert.ok((extra.vertical ? extra.body.height : extra.body.width) <= extra.availableLength + 1e-8);
+    const control = extra.dockPadding + extra.slotSize * 1.5;
+    const middle = extra.dockPadding + extra.slotSize / 2;
+    assert.ok(Math.abs(extra.slotStart(0) - extra.dockPadding - 2 * extra.slotSize) < 1e-8);
+    assert.strictEqual(extra.slotItemAt(extra.vertical ? middle : control, extra.vertical ? control : middle), null);
     for (let i = 0; i < 12; i++) {
       const along = extra.slotStart(i) + extra.slotSize / 2;
       const across = extra.dockPadding + extra.slotSize / 2;

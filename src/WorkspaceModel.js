@@ -127,9 +127,10 @@ function destinations(model, monitors, currentMonitor, currentId, source) {
 }
 
 function missionLayout(windows, model, monitors, currentMonitor, currentId) {
-  var workspaces = sortedSpaces(model.list, monitors, currentMonitor, currentId).filter(function(space) {
-    return space.present
-  })
+  // The tab strip follows compositor IDs, regardless of focus or monitor.
+  // In each Omarchy block the displayed slot 0 is its tenth workspace.
+  var workspaces = model.list.filter(function(space) { return space.present })
+    .sort(function(a, b) { return a.id - b.id })
   var cards = rows(windows, model, monitors, currentMonitor, currentId).filter(function(row) {
     return row.kind === "window"
   }).map(function(row) {

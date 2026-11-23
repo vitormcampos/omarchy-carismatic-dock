@@ -29,15 +29,18 @@ test('picker groups by real ID, shows the current workspace first and keeps mini
   assert.isFalse(catalog.byId[24].present);
 });
 
-test('Mission Control orders the local monitor first and includes existing empty spaces as targets', () => {
-  const catalog = m.catalog(spaces.filter(space => space.id !== 22), monitors, windows);
+test('Mission Control tabs keep numeric order across focus changes and include empty active spaces', () => {
+  const existing = spaces.filter(space => space.id !== 22).concat({ id: 20, monitor: 'DP-1' }).reverse();
+  const catalog = m.catalog(existing, monitors, windows);
   const board = m.missionLayout(windows, catalog, monitors, 'HDMI-A-1', 22);
-  assert.deepEqual(board.workspaces.map(space => space.id), [22, 21, 12, 11, 32]);
+  const ids = [11, 12, 20, 21, 22, 32];
+  assert.deepEqual(board.workspaces.map(space => space.id), ids);
   assert.deepEqual(board.currentCards, []);
   assert.deepEqual(board.otherCards.map(card => card.window), [b, a, c, orphan]);
   assert.equal(board.otherCards[2].space.id, 12);
   assert.equal(board.otherCards[3].space.id, 24);
   const local = m.missionLayout(windows, catalog, monitors, 'DP-1', 12);
+  assert.deepEqual(local.workspaces.map(space => space.id), ids);
   assert.deepEqual(local.currentCards.map(card => card.window), [a, c]);
   assert.deepEqual(local.otherCards.map(card => card.window), [b, orphan]);
   assert.notProperty(catalog.byId, '-99');
