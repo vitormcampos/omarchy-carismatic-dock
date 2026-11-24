@@ -24,7 +24,17 @@ PanelWindow {
 
   readonly property string position: dock ? dock.position : "bottom"
   readonly property bool vertical: dock ? dock.vertical : false
-  readonly property var monitor: Hyprland.monitorFor(screen)
+  // Track the monitor model as well as the Qt screen. monitorFor(screen)
+  // alone does not make the binding depend on an IPC monitor replacement.
+  readonly property var monitor: {
+    var name = screen ? screen.name : ""
+    if (!name || name === "FALLBACK") return null
+    var monitors = Hyprland.monitors.values
+    for (var i = 0; i < monitors.length; i++) {
+      if (monitors[i].name === name) return monitors[i]
+    }
+    return null
+  }
   readonly property var workspace: monitor ? monitor.activeWorkspace : null
   readonly property int workspaceId: workspace ? workspace.id : -1
   // A separate view per monitor: every regular workspace's apps appear, but
@@ -503,7 +513,7 @@ PanelWindow {
     return Math.max(window.gap, Math.min(window.height - popup.height - window.gap, center - popup.height / 2))
   }
 
-  visible: !remapGuard.remapping
+  visible: !!window.monitor && !remapGuard.remapping && !displayRemapTimer.running
   color: "transparent"
   surfaceFormat.opaque: false
   WlrLayershell.namespace: "omarchy-dock"
@@ -577,6 +587,20 @@ PanelWindow {
   ScreenMoveRemap {
     id: remapGuard
     window: window
+  }
+
+  function remapAfterDisplayChange() {
+    window.closeMenu()
+    if (window.dragging) window.endDrag()
+    window.revealed = false
+    displayRemapTimer.restart()
+  }
+
+  // Keep the dock unmapped long enough for layer-shell to process the unmap.
+  Timer {
+    id: displayRemapTimer
+    interval: 75
+    onTriggered: window.revealed = window.autohide && (bodyHover.hovered || edgeHover.hovered)
   }
 
   HyprlandFocusGrab {

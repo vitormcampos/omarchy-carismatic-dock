@@ -520,11 +520,68 @@ Item {
     onExited: Qt.callLater(root.readNextMode)
   }
 
+  // Qt and Hyprland can announce a resumed output in either order, with
+  // transient screens in between. Wait for the burst to settle, then query
+  // fresh snapshots. Retry briefly if IPC hasn't attached a workspace yet.
+  property int displayRecoveryAttempts: 0
+
+  function scheduleDisplayRecovery() {
+    root.displayRecoveryAttempts = 0
+    displayReadyTimer.stop()
+    displayRefreshTimer.restart()
+  }
+
+  function refreshDisplayState() {
+    root.displayRecoveryAttempts++
+    Hyprland.refreshMonitors()
+    Hyprland.refreshWorkspaces()
+    Hyprland.refreshToplevels()
+    displayReadyTimer.restart()
+  }
+
+  function finishDisplayRecovery() {
+    var windows = docks.instances
+    var ready = []
+    var pending = windows.length === 0
+    for (var i = 0; i < windows.length; i++) {
+      var window = windows[i]
+      if (window.monitor && window.workspace) ready.push(window)
+      else pending = true
+    }
+    if (pending && root.displayRecoveryAttempts < 4) {
+      displayRefreshTimer.restart()
+      return
+    }
+    root.refresh()
+    // A layer can still be mapped but have lost its exclusive zone. Reapply
+    // it to the replacement output without restarting the shell or plugin.
+    ready.forEach(function(window) { window.remapAfterDisplayChange() })
+  }
+
+  Timer {
+    id: displayRefreshTimer
+    interval: 350
+    onTriggered: root.refreshDisplayState()
+  }
+
+  Timer {
+    id: displayReadyTimer
+    interval: 200
+    onTriggered: root.finishDisplayRecovery()
+  }
+
+  Connections {
+    target: Quickshell
+    function onScreensChanged() { root.scheduleDisplayRecovery() }
+  }
+
   Connections {
     target: Hyprland
     function onRawEvent(event) {
       var name = event ? String(event.name) : ""
-      if (name === "configreloaded") root.refresh()
+      if (name === "monitoradded" || name === "monitoraddedv2" || name === "monitorremoved"
+          || name === "monitorremovedv2") root.scheduleDisplayRecovery()
+      else if (name === "configreloaded") root.refresh()
       // Hyprland's window and workspace lists do not follow fullscreen on
       // their own.
       else if (name === "fullscreen") {
@@ -546,6 +603,7 @@ Item {
 
     // The layout commands call this after changing a workspace's mode.
     function refresh(): void { root.refresh() }
+    function recoverDisplay(): void { root.scheduleDisplayRecovery() }
     function apps(): void {
       missionControl.close()
       appGrid.toggle()
