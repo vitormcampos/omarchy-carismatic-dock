@@ -1244,11 +1244,11 @@ PanelWindow {
     readonly property var windowRows: {
       if (!windowList || !window.dock) return []
       var dock = window.dock
-      var monitorName = window.monitor ? window.monitor.name : ""
-      if (window.moveAddress)
+      if (window.moveAddress) {
+        var monitorName = window.monitor ? window.monitor.name : ""
         return WorkspaceModel.destinations(dock.workspaceCatalog, dock.workspaceMonitors, monitorName, window.workspaceId, moveSource)
-      return WorkspaceModel.rows(pickerItem.windows,
-        dock.workspaceCatalog, dock.workspaceMonitors, monitorName, window.workspaceId)
+      }
+      return WorkspaceModel.rows(pickerItem.windows, dock.workspaceCatalog, window.workspaceId)
     }
     readonly property bool stack: !!window.stackItem
     property bool resizeReady: false

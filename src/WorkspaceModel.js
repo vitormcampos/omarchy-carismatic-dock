@@ -91,7 +91,12 @@ function sortedSpaces(spaces, monitors, currentMonitor, currentId) {
   })
 }
 
-function rows(windows, model, monitors, currentMonitor, currentId) {
+function rows(windows, model, currentId) {
+  var spaces = model.list.slice().sort(function(a, b) { return a.id - b.id })
+  return groupedWindowRows(windows, spaces, currentId)
+}
+
+function groupedWindowRows(windows, spaces, currentId) {
   var byId = Object.create(null), unassigned = [], result = []
   windows.forEach(function(window) {
     var id = windowWorkspace(window)
@@ -99,7 +104,7 @@ function rows(windows, model, monitors, currentMonitor, currentId) {
     if (!byId[id]) byId[id] = []
     byId[id].push(window)
   })
-  sortedSpaces(model.list, monitors, currentMonitor, currentId).forEach(function(space) {
+  spaces.forEach(function(space) {
     var group = byId[space.id]
     if (!group) return
     result.push({ kind: "workspace", space: space, current: space.id === currentId })
@@ -131,7 +136,8 @@ function missionLayout(windows, model, monitors, currentMonitor, currentId) {
   // In each Omarchy block the displayed slot 0 is its tenth workspace.
   var workspaces = model.list.filter(function(space) { return space.present })
     .sort(function(a, b) { return a.id - b.id })
-  var cards = rows(windows, model, monitors, currentMonitor, currentId).filter(function(row) {
+  var spaces = sortedSpaces(model.list, monitors, currentMonitor, currentId)
+  var cards = groupedWindowRows(windows, spaces, currentId).filter(function(row) {
     return row.kind === "window"
   }).map(function(row) {
     return { window: row.window, title: row.title, space: model.byId[windowWorkspace(row.window)] || null }

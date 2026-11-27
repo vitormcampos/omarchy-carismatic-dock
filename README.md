@@ -21,7 +21,8 @@ not save are not counted.
 ## Workspace management
 
 Click a multi-window app or right-click a running app and choose **Windows…**
-to see its windows grouped by workspace, with the current workspace first.
+to see its windows grouped in ascending workspace ID order. The current
+workspace is marked without changing its position in the list.
 Click a row to focus or restore the window. **Move…** lets you send a specific
 non-minimized window to an existing workspace on any monitor without following it.
 

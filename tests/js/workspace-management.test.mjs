@@ -17,9 +17,9 @@ const c = { workspaceId: -99, minimized: true, minimizedFrom: 12, title: 'Window
 const orphan = { workspaceId: -99, minimized: true, minimizedFrom: 24, title: 'Minimized' };
 const windows = [b, a, c, orphan];
 
-test('picker groups by real ID, shows the current workspace first and keeps minimized origins', () => {
+test('picker groups by real ID and keeps minimized origins', () => {
   const catalog = m.catalog(spaces, monitors, windows);
-  const rows = m.rows(windows, catalog, monitors, 'DP-1', 12);
+  const rows = m.rows(windows, catalog, 12);
   assert.deepEqual(rows.filter(row => row.kind === 'workspace').map(row => row.space.id), [12, 21, 24]);
   assert.isTrue(rows[0].current);
   assert.isTrue(rows[0].space.fullId);
@@ -27,6 +27,22 @@ test('picker groups by real ID, shows the current workspace first and keeps mini
     ['Window · 1', 'Window · 2', 'Window', 'Minimized']);
   assert.equal(rows[2].window, c);
   assert.isFalse(catalog.byId[24].present);
+});
+
+test('picker keeps numeric order across active workspace and monitor changes', () => {
+  const pickerSpaces = [{ id: 10, monitor: 'DP-1' }, { id: 2, monitor: 'HDMI-A-1' }, ...spaces];
+  const pickerWindows = [a, { workspaceId: 10 }, c, { workspaceId: 2 }, b];
+  for (const [currentId, monitor] of [[10, 'DP-1'], [21, 'HDMI-A-1'], [12, 'DP-1']]) {
+    const activeMonitors = monitors.map(item => item.name === monitor ? { ...item, activeId: currentId } : item);
+    if (monitor === 'HDMI-A-1') activeMonitors.reverse();
+    const catalog = m.catalog(pickerSpaces, activeMonitors, pickerWindows);
+    const rows = m.rows(pickerWindows, catalog, currentId);
+    const headers = rows.filter(row => row.kind === 'workspace');
+    assert.deepEqual(headers.map(row => row.space.id), [2, 10, 12, 21]);
+    assert.deepEqual(headers.filter(row => row.current).map(row => row.space.id), [currentId]);
+    assert.deepEqual(rows.filter(row => row.kind === 'window').map(row => row.window),
+      [pickerWindows[3], pickerWindows[1], a, c, b]);
+  }
 });
 
 test('Mission Control tabs keep numeric order across focus changes and include empty active spaces', () => {
